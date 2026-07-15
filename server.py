@@ -167,7 +167,11 @@ def api_config(q):
     if os.path.exists(OPP_FILE):
         opp = open(OPP_FILE).read().strip().splitlines()[0].strip() if open(OPP_FILE).read().strip() else ""
     m = meta_for(raid_arg(q))
-    raids = sorted({x["raid_number"] for x in guild_histories(OURS_GID)}, reverse=True)
+    # 参加履歴に加え、最新回・選択中の回は必ず一覧に含める(開催直後で
+    # まだ自団の履歴行が無くてもタブに出るように)。
+    rset = {x["raid_number"] for x in guild_histories(OURS_GID)}
+    rset |= {r for r in (m["raid"], m["latest"]) if r}
+    raids = sorted(rset, reverse=True)
     return {"ours": OURS_NAME, "opponent": opp, "raid": m["raid"], "latest": m["latest"],
             "raids": raids, "schedules": m["schedules"]}
 

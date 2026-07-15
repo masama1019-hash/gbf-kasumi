@@ -80,6 +80,8 @@
 </main>
 <script>
 const $=s=>document.querySelector(s);
+// 数値を小数点1桁で表示(nullは—)。予選・本戦・スカウト全テーブル/カードで統一
+const f1=x=>(x!=null&&x!=='')?(+x).toFixed(1):'—';
 let charts={}, cfg=null, timer=null;
 document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>{
   document.querySelectorAll('.tab').forEach(x=>x.classList.remove('on'));
@@ -173,13 +175,13 @@ async function loadYosen(){
       <div class="metric"><div class="l">300位ボーダー</div><div class="v">${lb?.toFixed(1)??'—'}<span style="font-size:12px">億</span></div><div class="s">予選通過ライン</div></div>
       <div class="metric"><div class="l">300位との差</div><div class="v ${diff>=0?'good':'bad'}">${diff!=null?(diff>0?'+':'')+diff.toFixed(1):'—'}<span style="font-size:12px">億</span></div><div class="s">${diff!=null?(diff>=0?'通過圏内':'圏外・要追い上げ'):''}</div></div>
       ${p?`<div class="metric"><div class="l">300位 前回同時刻比</div><div class="v ${bdiff>0?'bad':'good'}" style="font-size:20px">${bpct!=null?bpct+'%':'—'}</div><div class="s">前回${lpb?.toFixed(1)??'—'}億 / ${bdiff!=null?(bdiff>0?'+':'')+bdiff.toFixed(1)+'億':''}${trendTxt(bpct)}</div></div>`:''}
-      ${projFinal!=null?`<div class="metric"><div class="l">300位ボーダー着地予想</div><div class="v">${projFinal.toFixed(0)}<span style="font-size:12px">億</span></div><div class="s">前回最終${prevFinal.toFixed(0)}億基準${bpct!=null?` / 前回着地比較（同時刻${bpct}%）`:''}</div></div>`:''}
+      ${projFinal!=null?`<div class="metric"><div class="l">300位ボーダー着地予想</div><div class="v">${f1(projFinal)}<span style="font-size:12px">億</span></div><div class="s">前回最終${f1(prevFinal)}億基準${bpct!=null?` / 前回着地比較（同時刻${bpct}%）`:''}</div></div>`:''}
     </div>
     <div class="card"><h2>累積貢献度（億）— 実線=今回 / 点線=前回(第${d.raid-1}回)</h2><div class="chartbox"><canvas id="yCum"></canvas></div></div>
     <div class="card"><h2>時速（億/h）</h2><div class="chartbox"><canvas id="ySpd"></canvas></div></div>
     <div class="card"><h2>予選推移（数値・億）</h2><div style="overflow-x:auto"><table><tr><th>時刻</th><th>霞桜団</th><th>順位</th><th>時速</th><th>300位</th><th>時速</th><th>差</th>${p?'<th>前回300位</th><th>前回比</th>':''}</tr>${
       K.map((k,i)=>{const df=(oc[i]!=null&&bc[i]!=null)?oc[i]-bc[i]:null; const bd=(bc[i]!=null&&pb[i]!=null)?bc[i]-pb[i]:null;
-        return `<tr><td>${L[i]}</td><td>${oc[i]??'—'}</td><td style="color:var(--mut)">${orank[i]?orank[i]+'位':'—'}</td><td style="color:var(--mut)">${os[i]??'—'}</td><td>${bc[i]??'—'}</td><td style="color:var(--mut)">${bs[i]??'—'}</td><td class="${df!=null?(df>=0?'good':'bad'):''}">${df!=null?(df>0?'+':'')+df.toFixed(1):'—'}</td>${p?`<td style="color:var(--mut)">${pb[i]??'—'}</td><td class="${bd!=null?(bd>0?'bad':'good'):''}">${bd!=null?(bd>0?'+':'')+bd.toFixed(1):'—'}</td>`:''}</tr>`;}).join('')
+        return `<tr><td>${L[i]}</td><td>${f1(oc[i])}</td><td style="color:var(--mut)">${orank[i]?orank[i]+'位':'—'}</td><td style="color:var(--mut)">${f1(os[i])}</td><td>${f1(bc[i])}</td><td style="color:var(--mut)">${f1(bs[i])}</td><td class="${df!=null?(df>=0?'good':'bad'):''}">${df!=null?(df>0?'+':'')+df.toFixed(1):'—'}</td>${p?`<td style="color:var(--mut)">${f1(pb[i])}</td><td class="${bd!=null?(bd>0?'bad':'good'):''}">${bd!=null?(bd>0?'+':'')+bd.toFixed(1):'—'}</td>`:''}</tr>`;}).join('')
     }</table></div></div>`;
   mkChart('#yCum','line',L,[
     {label:'霞桜団',data:oc,borderColor:'#378ADD',backgroundColor:'#378ADD',tension:.2,pointRadius:0,borderWidth:2.5,spanGaps:true},
@@ -261,7 +263,7 @@ async function loadLive(){
     </div>
     ${(d.ref||[]).length?`<div class="card"><h2>参考情報</h2><table><tr><th>日程</th><th>${d.ours.name}</th><th>順位</th><th>${d.opp.name||'相手'}</th><th>順位</th><th>差</th></tr>${
       d.ref.map(r=>{const has=r.ours!=null&&r.opp!=null; const df=has?r.ours-r.opp:null;
-        return `<tr><td>${r.label}</td><td>${r.ours??'—'}</td><td style="color:var(--mut)">${r.ours_rank?r.ours_rank+'位':'—'}</td><td>${r.opp??'—'}</td><td style="color:var(--mut)">${r.opp_rank?r.opp_rank+'位':'—'}</td><td class="${df!=null?(df>=0?'good':'bad'):''}">${df!=null?(df>0?'+':'')+df.toFixed(1):'—'}</td></tr>`;}).join('')
+        return `<tr><td>${r.label}</td><td>${f1(r.ours)}</td><td style="color:var(--mut)">${r.ours_rank?r.ours_rank+'位':'—'}</td><td>${f1(r.opp)}</td><td style="color:var(--mut)">${r.opp_rank?r.opp_rank+'位':'—'}</td><td class="${df!=null?(df>=0?'good':'bad'):''}">${df!=null?(df>0?'+':'')+df.toFixed(1):'—'}</td></tr>`;}).join('')
     }</table></div>`:''}
     ${(d.rank_history||[]).some(r=>r.opp!=null)?`<div class="card"><h2>総合順位の推移（過去開催含む）</h2><div class="chartbox" style="height:200px"><canvas id="rankC"></canvas></div></div>`:''}
     <div class="card"><h2>累積 Day分（億）${(d.past||[]).length?(d.past.length===1?' — 点線（前日貢献度）':' — 点線（過去日貢献度）'):''}</h2><div class="chartbox"><canvas id="cumC"></canvas></div></div>
@@ -271,7 +273,7 @@ async function loadLive(){
       d.hours.filter(h=>prev.ours.cum[h]!=null||prev.opp.cum[h]!=null).map(h=>{
         const oc=prev.ours.cum[h],os=prev.ours.speed[h],pc=prev.opp.cum[h],ps=prev.opp.speed[h];
         const df=(oc!=null&&pc!=null)?oc-pc:null;
-        return `<tr><td>${h==='24:00'?'24':parseInt(h)}時</td><td>${oc??'—'}</td><td style="color:var(--mut)">${os??'—'}</td><td>${pc??'—'}</td><td style="color:var(--mut)">${ps??'—'}</td><td class="${df!=null?(df>=0?'good':'bad'):''}">${df!=null?(df>0?'+':'')+df.toFixed(1):'—'}</td></tr>`;
+        return `<tr><td>${h==='24:00'?'24':parseInt(h)}時</td><td>${f1(oc)}</td><td style="color:var(--mut)">${f1(os)}</td><td>${f1(pc)}</td><td style="color:var(--mut)">${f1(ps)}</td><td class="${df!=null?(df>=0?'good':'bad'):''}">${df!=null?(df>0?'+':'')+df.toFixed(1):'—'}</td></tr>`;
       }).join('')}</table></div>`:''}`;
   const pastSets=(key)=>(d.past||[]).flatMap(pd=>{
     const sets=[];
@@ -313,11 +315,11 @@ async function loadScout(){
   }
   const wr=d.winrate!=null?`<span class="badge" style="background:${d.winrate>=55?'#e1f5ee':d.winrate>=45?'#faeeda':'#fcebeb'};color:${d.winrate>=55?'#0F6E56':d.winrate>=45?'#854F0B':'#A32D2D'}">霞桜団 勝率目安 ${d.winrate}%</span>`:'';
   let evRows=d.events.map(e=>{
-    const ds=Object.entries(e.daily).map(([do_,v])=>`${['','予1','予2','IB','本1','本2','本3','本4'][do_]}:${v}`).join(' / ');
-    return `<tr><td>${e.raid}回</td><td style="text-align:left;font-size:12px">${ds}</td><td>${e.total}億</td><td>${e.final_rank}位</td></tr>`;}).join('');
+    const ds=Object.entries(e.daily).map(([do_,v])=>`${['','予1','予2','IB','本1','本2','本3','本4'][do_]}:${f1(v)}`).join(' / ');
+    return `<tr><td>${e.raid}回</td><td style="text-align:left;font-size:12px">${ds}</td><td>${f1(e.total)}億</td><td>${e.final_rank}位</td></tr>`;}).join('');
   let cmpRows=d.compare.map(c=>{
     const cls=c.ours!=null&&c.opp!=null?(c.ours>=c.opp?'good':'bad'):'';
-    return `<tr><td>${c.label}</td><td>${c.ours??'—'}</td><td>${c.opp??'—'}</td><td class="${cls}">${c.ours!=null&&c.opp!=null?((c.ours-c.opp>0?'+':'')+(c.ours-c.opp).toFixed(1)):'—'}</td></tr>`;}).join('');
+    return `<tr><td>${c.label}</td><td>${f1(c.ours)}</td><td>${f1(c.opp)}</td><td class="${cls}">${c.ours!=null&&c.opp!=null?((c.ours-c.opp>0?'+':'')+(c.ours-c.opp).toFixed(1)):'—'}</td></tr>`;}).join('');
   $('#scoutBody').innerHTML=`
     <div class="card">
       <div class="row" style="justify-content:space-between">

@@ -523,6 +523,10 @@ ROUTES = {"/api/config": api_config, "/api/live": api_live,
 
 
 class Handler(BaseHTTPRequestHandler):
+    # HTTP/1.1 の持続的接続にする(Render等のプロキシが接続を再利用しても
+    # no-server にならないように)。全レスポンスで Content-Length を送ること。
+    protocol_version = "HTTP/1.1"
+
     def log_message(self, fmt, *args):
         pass
 
@@ -555,6 +559,7 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(data)
         else:
             self.send_response(404)
+            self.send_header("Content-Length", "0")
             self.end_headers()
 
 

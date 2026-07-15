@@ -172,8 +172,8 @@ async function loadYosen(){
       <div class="metric"><div class="l">霞桜団 予選貢献度</div><div class="v">${lo?.toFixed(1)??'—'}<span style="font-size:12px">億</span></div><div class="s">${lr?lr+'位':''}</div></div>
       <div class="metric"><div class="l">300位ボーダー</div><div class="v">${lb?.toFixed(1)??'—'}<span style="font-size:12px">億</span></div><div class="s">予選通過ライン</div></div>
       <div class="metric"><div class="l">300位との差</div><div class="v ${diff>=0?'good':'bad'}">${diff!=null?(diff>0?'+':'')+diff.toFixed(1):'—'}<span style="font-size:12px">億</span></div><div class="s">${diff!=null?(diff>=0?'通過圏内':'圏外・要追い上げ'):''}</div></div>
-      ${projFinal!=null?`<div class="metric"><div class="l">300位ボーダー着地予想</div><div class="v">${projFinal.toFixed(0)}<span style="font-size:12px">億</span></div><div class="s">前回最終${prevFinal.toFixed(0)}億基準${ourMargin!=null?` / 自団${ourMargin>=0?'+':''}${ourMargin.toFixed(0)}億`:''}</div></div>`:''}
       ${p?`<div class="metric"><div class="l">300位 前回同時刻比</div><div class="v ${bdiff>0?'bad':'good'}" style="font-size:20px">${bpct!=null?bpct+'%':'—'}</div><div class="s">前回${lpb?.toFixed(1)??'—'}億 / ${bdiff!=null?(bdiff>0?'+':'')+bdiff.toFixed(1)+'億':''}${trendTxt(bpct)}</div></div>`:''}
+      ${projFinal!=null?`<div class="metric"><div class="l">300位ボーダー着地予想</div><div class="v">${projFinal.toFixed(0)}<span style="font-size:12px">億</span></div><div class="s">前回最終${prevFinal.toFixed(0)}億基準${bpct!=null?` / 前回着地比較（同時刻${bpct}%）`:''}</div></div>`:''}
     </div>
     <div class="card"><h2>累積貢献度（億）— 実線=今回 / 点線=前回(第${d.raid-1}回)</h2><div class="chartbox"><canvas id="yCum"></canvas></div></div>
     <div class="card"><h2>時速（億/h）</h2><div class="chartbox"><canvas id="ySpd"></canvas></div></div>

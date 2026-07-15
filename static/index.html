@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>古戦場（霞桜団）</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<style>
+  :root { --blue:#378ADD; --red:#D85A30; --green:#1D9E75; --bg:#f6f7f9; --card:#fff; --tx:#1c2733; --mut:#68707a; }
+  * { box-sizing:border-box; margin:0; }
+  body { font-family:-apple-system,"Hiragino Sans",sans-serif; background:var(--bg); color:var(--tx); }
+  header { background:#1c2733; color:#fff; padding:14px 18px; display:flex; align-items:center; gap:14px; flex-wrap:wrap; }
+  header h1 { font-size:17px; font-weight:600; }
+  .tabs { display:flex; gap:4px; margin-left:auto; }
+  .tab { padding:7px 16px; border-radius:8px; background:transparent; color:#cfd6dd; border:none; font-size:14px; cursor:pointer; }
+  .tab.on { background:var(--blue); color:#fff; }
+  main { max-width:860px; margin:0 auto; padding:16px; }
+  .card { background:var(--card); border-radius:12px; padding:16px; margin-bottom:14px; box-shadow:0 1px 3px rgba(0,0,0,.06); }
+  .row { display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+  .metrics { display:grid; grid-template-columns:repeat(auto-fit,minmax(130px,1fr)); gap:10px; margin-bottom:14px; }
+  .metric { background:var(--card); border-radius:10px; padding:12px; box-shadow:0 1px 3px rgba(0,0,0,.06); }
+  .metric .l { font-size:12px; color:var(--mut); }
+  .metric .v { font-size:22px; font-weight:600; margin-top:2px; }
+  .metric .s { font-size:11px; color:var(--mut); }
+  select,input,button { font-size:14px; padding:8px 10px; border:1px solid #d5dae0; border-radius:8px; background:#fff; }
+  button.primary { background:var(--blue); color:#fff; border:none; cursor:pointer; }
+  .chartbox { position:relative; height:240px; }
+  h2 { font-size:14px; color:var(--mut); font-weight:600; margin-bottom:8px; }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  th,td { padding:6px 8px; text-align:right; border-bottom:1px solid #eef0f2; }
+  th:first-child,td:first-child { text-align:left; }
+  .good { color:var(--green); font-weight:600; } .bad { color:var(--red); font-weight:600; }
+  .load { color:var(--mut); font-size:13px; padding:20px; text-align:center; }
+  .hide { display:none; }
+  .badge { display:inline-block; padding:3px 10px; border-radius:20px; font-size:12px; font-weight:600; }
+</style>
+</head>
+<body>
+<header>
+  <h1>⚔️ 古戦場（霞桜団）</h1>
+  <select id="raidSel" style="font-size:13px;padding:5px 8px;border-radius:8px;border:none;background:#2e3d4d;color:#fff"></select>
+  <div class="tabs">
+    <button class="tab on" data-tab="live">ライブ</button>
+    <button class="tab" data-tab="scout">スカウト</button>
+  </div>
+</header>
+<main>
+
+<div id="pane-live">
+  <div class="card">
+    <div class="row">
+      <label style="font-size:13px;color:var(--mut)">対象日</label>
+      <select id="dateSel"></select>
+      <label id="oppLabel" style="font-size:13px;color:var(--mut)">相手</label>
+      <input id="oppInput" placeholder="相手団名 または 団ID" style="flex:1;min-width:140px">
+      <label id="pastLabel" style="font-size:13px;color:var(--mut)">過去比較</label>
+      <select id="pastSel">
+        <option value="0">なし</option>
+        <option value="1" selected>前日</option>
+        <option value="9">全本戦日</option>
+      </select>
+      <button class="primary" onclick="loadLive()">更新</button>
+      <label style="font-size:12px;color:var(--mut)"><input type="checkbox" id="autoRef"> 5分毎自動更新</label>
+    </div>
+  </div>
+  <div id="liveBody"><div class="load">「更新」を押すと集計します（初回は30秒ほどかかります）</div></div>
+</div>
+
+<div id="pane-scout" class="hide">
+  <div class="card">
+    <div class="row">
+      <input id="scoutQ" placeholder="相手の団名 または 団ID" style="flex:1;min-width:200px">
+      <button class="primary" onclick="loadScout()">分析</button>
+    </div>
+    <div style="font-size:11px;color:var(--mut);margin-top:6px">団名は完全一致優先(上位3000位内)。見つからない場合はゲーム内URLの団IDで指定</div>
+  </div>
+  <div id="scoutBody"></div>
+</div>
+
+</main>
+<script>
+const $=s=>document.querySelector(s);
+let charts={}, cfg=null, timer=null;
+document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>{
+  document.querySelectorAll('.tab').forEach(x=>x.classList.remove('on'));
+  b.classList.add('on');
+  $('#pane-live').classList.toggle('hide', b.dataset.tab!=='live');
+  $('#pane-scout').classList.toggle('hide', b.dataset.tab!=='scout');
+});
+function mkChart(id,type,labels,datasets,extra={}){
+  if(charts[id]) charts[id].destroy();
+  charts[id]=new Chart($(id),{type,data:{labels,datasets},options:{
+    responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
+    plugins:{legend:{display:true,labels:{boxWidth:14,font:{size:11}}}},
+    scales:{x:{grid:{display:false},ticks:{font:{size:10}}},y:{ticks:{font:{size:10}}}},...extra}});
+}
+function fillDates(){
+  const battle=(cfg.schedules||[]).filter(s=>s.day_of>=4);
+  const sel=$('#dateSel'); sel.innerHTML='';
+  const yo=document.createElement('option'); yo.value='yosen'; yo.textContent='予選'; sel.appendChild(yo);
+  battle.forEach(s=>{const o=document.createElement('option');o.value=s.day;o.textContent=`本戦${s.day_of-3}日目 (${s.day})`;sel.appendChild(o);});
+  sel.selectedIndex=battle.length;  // 既定は最新本戦日
+  sel.onchange=syncYosenUI; syncYosenUI();
+}
+function syncYosenUI(){
+  const yo=$('#dateSel').value==='yosen';
+  // 予選は相手団不要・過去比較は前回予選のみ → グレーアウト
+  ['#oppInput','#pastSel'].forEach(s=>{const e=$(s); e.disabled=yo; e.style.opacity=yo?0.4:1;});
+  $('#oppLabel').style.opacity=yo?0.4:1; $('#pastLabel').style.opacity=yo?0.4:1;
+}
+async function init(raid){
+  cfg=await (await fetch('/api/config'+(raid?'?raid='+raid:''))).json();
+  const rs=$('#raidSel');
+  if(!rs.options.length){
+    (cfg.raids||[cfg.raid]).forEach(r=>{const o=document.createElement('option');o.value=r;o.textContent=`第${r}回`;rs.appendChild(o);});
+    rs.value=cfg.raid;
+    rs.onchange=()=>{init(rs.value); $('#liveBody').innerHTML='<div class="load">「更新」を押すと集計します</div>'; $('#scoutBody').innerHTML='';};
+  }
+  fillDates();
+}
+function paceJudge(ratio){
+  if(ratio==null) return null;
+  const pct=Math.round(ratio*100);
+  if(pct>=115) return {pct,txt:'前日より加速中',bg:'#fcebeb',fg:'#A32D2D'};
+  if(pct>=85)  return {pct,txt:'前日並みペース',bg:'#faeeda',fg:'#854F0B'};
+  if(pct>=60)  return {pct,txt:'前日より減速',bg:'#e6f1fb',fg:'#185FA5'};
+  return {pct,txt:'撤退の可能性大',bg:'#e1f5ee',fg:'#0F6E56'};
+}
+async function loadYosen(){
+  $('#liveBody').innerHTML='<div class="load">予選データ取得中…(初回は15〜30秒)</div>';
+  let d;
+  try{ d=await (await fetch('/api/yosen?raid='+$('#raidSel').value)).json(); }
+  catch(e){ $('#liveBody').innerHTML='<div class="card bad">取得に時間がかかり切断されました。もう一度「更新」を押してください</div>'; return; }
+  if(d.error){$('#liveBody').innerHTML=`<div class="card bad">${d.error}</div>`;return;}
+  if(!d.keys||!d.keys.length){$('#liveBody').innerHTML='<div class="card" style="color:var(--mut)">この回の予選毎時データはgbfdataに未収録です（古い開催回では予選の時間毎データが残っていません）。本戦の日別実績は本戦日を選ぶと表示できます。</div>';return;}
+  const K=d.keys, L=d.labels;
+  const oc=K.map(k=>d.ours.cum[k]??null), bc=K.map(k=>d.border.cum[k]??null);
+  const os=K.map(k=>d.ours.speed[k]??null), bs=K.map(k=>d.border.speed[k]??null);
+  const orank=K.map(k=>d.ours.rank[k]??null);
+  const li=oc.map((v,i)=>v!=null?i:-1).reduce((a,b)=>Math.max(a,b),-1);
+  const lo=li>=0?oc[li]:null, lb=li>=0?bc[li]:null, lr=li>=0?orank[li]:null;
+  const diff=(lo!=null&&lb!=null)?lo-lb:null;
+  const p=d.prev;
+  // 前回を開始時刻(20時)そろえでインデックス整列(今回と前回どちらも同じ予選タイムライン構造)
+  const pcum=(side)=>{ if(!p)return[]; const pv=Object.values(p[side].cum);
+    return K.map((_,i)=>i<pv.length?pv[i]:null); };
+  const pb=pcum('border');
+  // 300位ボーダー 今回 vs 前回(同時刻)
+  const lpb=(li>=0&&li<pb.length)?pb[li]:null;
+  const bdiff=(lb!=null&&lpb!=null)?lb-lpb:null;
+  const bpct=(lb!=null&&lpb)?Math.round(lb/lpb*100):null;
+  // 前回同時刻比の文言(上昇/減少の度合い)
+  const trendTxt=(pct)=>{ if(pct==null)return''; if(pct>=110)return'（今回大きく上昇）'; if(pct>=103)return'（今回やや上昇）'; if(pct>=98)return'（前回とほぼ同水準）'; if(pct>=90)return'（今回やや減少）'; return'（今回大きく減少）'; };
+  // 300位ボーダー着地予想: 現時点の300位 × (前回最終300位 ÷ 前回同時刻300位)
+  const pbAll=p?Object.values(p.border.cum):[];
+  const prevFinal=pbAll.length?pbAll[pbAll.length-1]:null;
+  const projFinal=(lb!=null&&lpb&&prevFinal)?lb*(prevFinal/lpb):null;
+  const ourMargin=(lo!=null&&projFinal!=null)?lo-projFinal:null;  // 現時点自団 − 着地予想
+  $('#liveBody').innerHTML=`
+    <div class="metrics">
+      <div class="metric"><div class="l">霞桜団 予選貢献度</div><div class="v">${lo?.toFixed(1)??'—'}<span style="font-size:12px">億</span></div><div class="s">${lr?lr+'位':''}</div></div>
+      <div class="metric"><div class="l">300位ボーダー</div><div class="v">${lb?.toFixed(1)??'—'}<span style="font-size:12px">億</span></div><div class="s">予選通過ライン</div></div>
+      <div class="metric"><div class="l">300位との差</div><div class="v ${diff>=0?'good':'bad'}">${diff!=null?(diff>0?'+':'')+diff.toFixed(1):'—'}<span style="font-size:12px">億</span></div><div class="s">${diff!=null?(diff>=0?'通過圏内':'圏外・要追い上げ'):''}</div></div>
+      ${projFinal!=null?`<div class="metric"><div class="l">300位ボーダー着地予想</div><div class="v">${projFinal.toFixed(0)}<span style="font-size:12px">億</span></div><div class="s">前回最終${prevFinal.toFixed(0)}億基準${ourMargin!=null?` / 自団${ourMargin>=0?'+':''}${ourMargin.toFixed(0)}億`:''}</div></div>`:''}
+      ${p?`<div class="metric"><div class="l">300位 前回同時刻比</div><div class="v ${bdiff>0?'bad':'good'}" style="font-size:20px">${bpct!=null?bpct+'%':'—'}</div><div class="s">前回${lpb?.toFixed(1)??'—'}億 / ${bdiff!=null?(bdiff>0?'+':'')+bdiff.toFixed(1)+'億':''}${trendTxt(bpct)}</div></div>`:''}
+    </div>
+    <div class="card"><h2>累積貢献度（億）— 実線=今回 / 点線=前回(第${d.raid-1}回)</h2><div class="chartbox"><canvas id="yCum"></canvas></div></div>
+    <div class="card"><h2>時速（億/h）</h2><div class="chartbox"><canvas id="ySpd"></canvas></div></div>
+    <div class="card"><h2>予選推移（数値・億）</h2><div style="overflow-x:auto"><table><tr><th>時刻</th><th>霞桜団</th><th>順位</th><th>時速</th><th>300位</th><th>時速</th><th>差</th>${p?'<th>前回300位</th><th>前回比</th>':''}</tr>${
+      K.map((k,i)=>{const df=(oc[i]!=null&&bc[i]!=null)?oc[i]-bc[i]:null; const bd=(bc[i]!=null&&pb[i]!=null)?bc[i]-pb[i]:null;
+        return `<tr><td>${L[i]}</td><td>${oc[i]??'—'}</td><td style="color:var(--mut)">${orank[i]?orank[i]+'位':'—'}</td><td style="color:var(--mut)">${os[i]??'—'}</td><td>${bc[i]??'—'}</td><td style="color:var(--mut)">${bs[i]??'—'}</td><td class="${df!=null?(df>=0?'good':'bad'):''}">${df!=null?(df>0?'+':'')+df.toFixed(1):'—'}</td>${p?`<td style="color:var(--mut)">${pb[i]??'—'}</td><td class="${bd!=null?(bd>0?'bad':'good'):''}">${bd!=null?(bd>0?'+':'')+bd.toFixed(1):'—'}</td>`:''}</tr>`;}).join('')
+    }</table></div></div>`;
+  mkChart('#yCum','line',L,[
+    {label:'霞桜団',data:oc,borderColor:'#378ADD',backgroundColor:'#378ADD',tension:.2,pointRadius:0,borderWidth:2.5,spanGaps:true},
+    {label:'300位',data:bc,borderColor:'#D85A30',backgroundColor:'#D85A30',tension:.2,pointRadius:0,borderWidth:2.5,spanGaps:true},
+    ...(p?[{label:'前回霞桜団',data:pcum('ours'),borderColor:'#85B7EB',backgroundColor:'#85B7EB',borderDash:[5,3],tension:.2,pointRadius:0,borderWidth:1.5,spanGaps:true},
+         {label:'前回300位',data:pcum('border'),borderColor:'#F0997B',backgroundColor:'#F0997B',borderDash:[5,3],tension:.2,pointRadius:0,borderWidth:1.5,spanGaps:true}]:[]),
+    ...(projFinal!=null?[{label:'300位着地予想',data:L.map(()=>projFinal),borderColor:'#993C1D',borderDash:[2,3],tension:0,pointRadius:0,borderWidth:1.5}]:[])]);
+  mkChart('#ySpd','line',L,[
+    {label:'霞桜団時速',data:os,borderColor:'#378ADD',backgroundColor:'#378ADD',tension:.3,pointRadius:0,borderWidth:2,spanGaps:true},
+    {label:'300位時速',data:bs,borderColor:'#D85A30',backgroundColor:'#D85A30',tension:.3,pointRadius:0,borderWidth:2,spanGaps:true}]);
+}
+function pickOpp(gid){ $('#oppInput').value=gid; loadLive(); }
+async function loadLive(){
+  if($('#dateSel').value==='yosen'){ return loadYosen(); }
+  const past=$('#pastSel').value;
+  $('#liveBody').innerHTML='<div class="load">データ取得中…(初回や過去比較ありは1〜2分かかることがあります)</div>';
+  const p=new URLSearchParams({date:$('#dateSel').value,past,raid:$('#raidSel').value});
+  if($('#oppInput').value.trim()) p.set('opp',$('#oppInput').value.trim());
+  let d;
+  try{ d=await (await fetch('/api/live?'+p)).json(); }
+  catch(e){ $('#liveBody').innerHTML='<div class="card bad">取得に時間がかかり切断されました。もう一度「更新」を押してください（続きはキャッシュされているため、リトライごとに速くなります）</div>'; return; }
+  if(d.error){$('#liveBody').innerHTML=`<div class="card bad">${d.error}</div>`;return;}
+  if(d.candidates){
+    const rows=d.candidates.map(c=>`<tr><td style="text-align:left">${c.name}</td><td>${c.prev!=null?c.prev+'億':'—'}</td><td>${c.rank?c.rank+'位':'—'}</td><td><button onclick="pickOpp('${c.gid}')">この団を選択</button></td></tr>`).join('');
+    $('#liveBody').innerHTML=`<div class="card"><h2>同名団が${d.candidates.length}団あります — ${d.prev_label}貢献度・総合順位で相手を選択してください</h2>
+      <table><tr><th style="text-align:left">団名</th><th>${d.prev_label}貢献度</th><th>総合順位</th><th></th></tr>${rows}</table>
+      <div style="font-size:12px;color:var(--mut);margin-top:8px">※対戦相手は前日(予選)貢献度が自団と近いはずです。ゲームのマッチング画面の数値と照合してください。</div></div>`;
+    return;
+  }
+  const H=d.hours.map(h=>h==='24:00'?'24':String(parseInt(h)));
+  const arr=(s,k)=>d.hours.map(h=>s[k][h]??null);
+  const oc=arr(d.ours,'cum'), pc=arr(d.opp,'cum'), os=arr(d.ours,'speed'), ps=arr(d.opp,'speed');
+  const lastIdx=oc.map((v,i)=>v!=null?i:-1).reduce((a,b)=>Math.max(a,b),-1);
+  const lo=lastIdx>=0?oc[lastIdx]:0, lp=lastIdx>=0&&pc[lastIdx]!=null?pc[lastIdx]:null;
+  const lead=lp!=null?(lo-lp):null;
+  // 前日同時刻比(撤退判断): 直近時刻の値 ÷ 前日(=past配列の最後)の同時刻値
+  const prev=(d.past||[]).length?d.past[d.past.length-1]:null;
+  let judgeCards='';
+  if(prev&&lastIdx>=0){
+    const hkey=d.hours[lastIdx];
+    const oj=paceJudge(prev.opp.cum[hkey]?(d.opp.cum[hkey]??null)/prev.opp.cum[hkey]:null);
+    const kj=paceJudge(prev.ours.cum[hkey]?(d.ours.cum[hkey]??null)/prev.ours.cum[hkey]:null);
+    if(oj) judgeCards+=`<div class="metric"><div class="l">相手 ${prev.label}同時刻比</div><div class="v" style="font-size:18px">${oj.pct}%</div><div class="s"><span class="badge" style="background:${oj.bg};color:${oj.fg}">${oj.txt}</span></div></div>`;
+    if(kj) judgeCards+=`<div class="metric"><div class="l">自団 ${prev.label}同時刻比</div><div class="v" style="font-size:18px">${kj.pct}%</div><div class="s">${kj.txt}</div></div>`;
+  }
+  // 相手方針 & 勝率予想
+  const fc=d.forecast;
+  if(fc){
+    if(fc.policy){
+      const tone={bad:['#fcebeb','#A32D2D'],mid:['#faeeda','#854F0B'],good:['#e1f5ee','#0F6E56']}[fc.policy.tone];
+      judgeCards+=`<div class="metric"><div class="l">相手の方針(直近時速)</div><div class="v" style="font-size:17px"><span class="badge" style="background:${tone[0]};color:${tone[1]}">${fc.policy.label}</span></div><div class="s">前日同時間帯の時速比 ${fc.policy.pct}%</div></div>`;
+    }
+    const wc=fc.win>=60?'good':(fc.win>=40?'':'bad');
+    judgeCards+=`<div class="metric"><div class="l">本日勝率予想</div><div class="v ${wc}">${fc.win}%</div><div class="s">予測最終 ${fc.proj_ours}億 vs ${fc.proj_opp}億<br>過去戦績${fc.prior}%×${fc.basis}</div></div>`;
+  }
+  // 前日同時刻のリード(日次対戦なので前日の同時点と比較できると撤退判断に便利)
+  let prevLeadTxt='';
+  if(prev&&lastIdx>=0){
+    const hkey=d.hours[lastIdx];
+    const po=prev.ours.cum[hkey], pp=prev.opp.cum[hkey];
+    if(po!=null&&pp!=null){const pl=po-pp; prevLeadTxt=`${prev.label}同時刻: ${pl>0?'+':''}${pl.toFixed(1)}億`;}
+  }
+  // 相手団ページへのリンク
+  const oppUrl=d.opp.gid?`https://game.granbluefantasy.jp/#guild/detail/${d.opp.gid}`:null;
+  const oppName=d.opp.name||'相手未設定';
+  const oppNameHtml=oppUrl?`<a href="${oppUrl}" target="_blank" rel="noopener" style="color:var(--blue);text-decoration:none">${oppName} ↗</a>`:oppName;
+  // 当日の最高時速(8時は日始からの累積のため除外)
+  const peak=(sp,hrs)=>{let mv=null,mh=null;for(let i=1;i<sp.length;i++){if(sp[i]!=null&&(mv==null||sp[i]>mv)){mv=sp[i];mh=hrs[i];}}return{v:mv,h:mh};};
+  const opk=peak(os,H), ppk=peak(ps,H);
+  $('#liveBody').innerHTML=`
+    ${lastIdx<0?'<div class="card" style="color:var(--mut)">この回の毎時データはgbfdataに未収録のため、グラフ・リードは表示できません（参考情報の日別実績は有効です）</div>':''}
+    <div class="metrics">
+      <div class="metric"><div class="l">${d.ours.name} 本日Day分</div><div class="v">${lo?.toFixed(1)??'—'}<span style="font-size:12px">億</span></div><div class="s">前日終了比 / ${H[lastIdx]??''}時時点</div></div>
+      <div class="metric"><div class="l">${oppNameHtml} 本日Day分</div><div class="v">${lp?.toFixed(1)??'—'}<span style="font-size:12px">億</span></div><div class="s">前日終了比</div></div>
+      <div class="metric"><div class="l">本日リード(Day分の差)</div><div class="v ${lead>=0?'good':'bad'}">${lead!=null?(lead>0?'+':'')+lead.toFixed(1):'—'}<span style="font-size:12px">億</span></div><div class="s">${lead!=null?(lead>=0?'勝ち越し中':'ビハインド'):''}${prevLeadTxt?' / '+prevLeadTxt:''}</div></div>
+      <div class="metric"><div class="l">${d.ours.name} 本日最高時速</div><div class="v bad">${opk.v?.toFixed(1)??'—'}<span style="font-size:12px">億/h</span></div><div class="s">${opk.h?opk.h+'時':''}</div></div>
+      <div class="metric"><div class="l">${oppName} 本日最高時速</div><div class="v bad">${ppk.v?.toFixed(1)??'—'}<span style="font-size:12px">億/h</span></div><div class="s">${ppk.h?ppk.h+'時':''}</div></div>
+      ${judgeCards}
+    </div>
+    ${(d.ref||[]).length?`<div class="card"><h2>参考情報</h2><table><tr><th>日程</th><th>${d.ours.name}</th><th>順位</th><th>${d.opp.name||'相手'}</th><th>順位</th><th>差</th></tr>${
+      d.ref.map(r=>{const has=r.ours!=null&&r.opp!=null; const df=has?r.ours-r.opp:null;
+        return `<tr><td>${r.label}</td><td>${r.ours??'—'}</td><td style="color:var(--mut)">${r.ours_rank?r.ours_rank+'位':'—'}</td><td>${r.opp??'—'}</td><td style="color:var(--mut)">${r.opp_rank?r.opp_rank+'位':'—'}</td><td class="${df!=null?(df>=0?'good':'bad'):''}">${df!=null?(df>0?'+':'')+df.toFixed(1):'—'}</td></tr>`;}).join('')
+    }</table></div>`:''}
+    ${(d.rank_history||[]).some(r=>r.opp!=null)?`<div class="card"><h2>総合順位の推移（過去開催含む）</h2><div class="chartbox" style="height:200px"><canvas id="rankC"></canvas></div></div>`:''}
+    <div class="card"><h2>累積 Day分（億）${(d.past||[]).length?(d.past.length===1?' — 点線（前日貢献度）':' — 点線（過去日貢献度）'):''}</h2><div class="chartbox"><canvas id="cumC"></canvas></div></div>
+    <div class="card"><h2>時速（億/h）</h2><div class="chartbox"><canvas id="spdC"></canvas></div></div>
+    ${prev?`<div class="card"><h2>${prev.label}日目の推移（数値・億）</h2><table>
+      <tr><th>時刻</th><th>自団累積</th><th>時速</th><th>相手累積</th><th>時速</th><th>差</th></tr>${
+      d.hours.filter(h=>prev.ours.cum[h]!=null||prev.opp.cum[h]!=null).map(h=>{
+        const oc=prev.ours.cum[h],os=prev.ours.speed[h],pc=prev.opp.cum[h],ps=prev.opp.speed[h];
+        const df=(oc!=null&&pc!=null)?oc-pc:null;
+        return `<tr><td>${h==='24:00'?'24':parseInt(h)}時</td><td>${oc??'—'}</td><td style="color:var(--mut)">${os??'—'}</td><td>${pc??'—'}</td><td style="color:var(--mut)">${ps??'—'}</td><td class="${df!=null?(df>=0?'good':'bad'):''}">${df!=null?(df>0?'+':'')+df.toFixed(1):'—'}</td></tr>`;
+      }).join('')}</table></div>`:''}`;
+  const pastSets=(key)=>(d.past||[]).flatMap(pd=>{
+    const sets=[];
+    const mk=(side,color)=>({label:`${side==='ours'?'霞':'相手'}(${pd.label})`,
+      data:d.hours.map(h=>pd[side][key][h]??null),borderColor:color,backgroundColor:color,
+      borderDash:[3,3],tension:.25,pointRadius:0,borderWidth:1.3,spanGaps:true});
+    if(Object.keys(pd.ours[key]).length) sets.push(mk('ours','rgba(55,138,221,0.35)'));
+    if(Object.keys(pd.opp[key]).length) sets.push(mk('opp','rgba(216,90,48,0.35)'));
+    return sets;});
+  mkChart('#cumC','line',H,[
+    {label:d.ours.name,data:oc,borderColor:'#378ADD',backgroundColor:'#378ADD',tension:.25,pointRadius:0,borderWidth:2.5,spanGaps:true},
+    {label:d.opp.name||'相手',data:pc,borderColor:'#D85A30',backgroundColor:'#D85A30',tension:.25,pointRadius:0,borderWidth:2.5,spanGaps:true},
+    ...pastSets('cum')]);
+  mkChart('#spdC','line',H,[
+    {label:d.ours.name,data:os,borderColor:'#378ADD',backgroundColor:'#378ADD',tension:.3,pointRadius:0,borderWidth:2,spanGaps:true},
+    {label:d.opp.name||'相手',data:ps,borderColor:'#D85A30',backgroundColor:'#D85A30',tension:.3,pointRadius:0,borderWidth:2,spanGaps:true},
+    ...pastSets('speed')]);
+  const rh=d.rank_history||[];
+  if(rh.some(r=>r.opp!=null)&&document.getElementById('rankC')){
+    mkChart('#rankC','line',rh.map(r=>r.raid+'回'),[
+      {label:d.ours.name,data:rh.map(r=>r.ours),borderColor:'#378ADD',backgroundColor:'#378ADD',tension:.2,pointRadius:4,borderWidth:2,spanGaps:true},
+      {label:d.opp.name||'相手',data:rh.map(r=>r.opp),borderColor:'#D85A30',backgroundColor:'#D85A30',tension:.2,pointRadius:4,borderWidth:2,spanGaps:true}
+    ],{scales:{x:{grid:{display:false},ticks:{font:{size:11}}},
+       y:{reverse:true,ticks:{font:{size:10},callback:v=>v+'位'}}}});
+  }
+}
+$('#autoRef').onchange=e=>{ if(timer)clearInterval(timer); if(e.target.checked) timer=setInterval(loadLive,300000); };
+async function loadScout(){
+  const q=$('#scoutQ').value.trim(); if(!q)return;
+  $('#scoutBody').innerHTML='<div class="load">分析中…(初回は30秒ほど)</div>';
+  let d;
+  try{ d=await (await fetch('/api/scout?q='+encodeURIComponent(q)+'&raid='+$('#raidSel').value)).json(); }
+  catch(e){ $('#scoutBody').innerHTML='<div class="card bad">取得に時間がかかり切断されました。もう一度「分析」を押してください</div>'; return; }
+  if(d.error){$('#scoutBody').innerHTML=`<div class="card bad">${d.error}</div>`;return;}
+  if(d.candidates){
+    const rows=d.candidates.map(c=>`<tr><td style="text-align:left">${c.name}</td><td>${c.prev!=null?c.prev+'億':'—'}</td><td>${c.rank?c.rank+'位':'—'}</td><td><button onclick="$('#scoutQ').value='${c.gid}';loadScout()">この団を分析</button></td></tr>`).join('');
+    $('#scoutBody').innerHTML=`<div class="card"><h2>該当団が${d.candidates.length}件${d.prev_label?` — ${d.prev_label}貢献度・総合順位で選択`:''}</h2><table><tr><th style="text-align:left">団名</th><th>${d.prev_label||''}貢献度</th><th>総合順位</th><th></th></tr>${rows}</table></div>`;
+    return;
+  }
+  const wr=d.winrate!=null?`<span class="badge" style="background:${d.winrate>=55?'#e1f5ee':d.winrate>=45?'#faeeda':'#fcebeb'};color:${d.winrate>=55?'#0F6E56':d.winrate>=45?'#854F0B':'#A32D2D'}">霞桜団 勝率目安 ${d.winrate}%</span>`:'';
+  let evRows=d.events.map(e=>{
+    const ds=Object.entries(e.daily).map(([do_,v])=>`${['','予1','予2','IB','本1','本2','本3','本4'][do_]}:${v}`).join(' / ');
+    return `<tr><td>${e.raid}回</td><td style="text-align:left;font-size:12px">${ds}</td><td>${e.total}億</td><td>${e.final_rank}位</td></tr>`;}).join('');
+  let cmpRows=d.compare.map(c=>{
+    const cls=c.ours!=null&&c.opp!=null?(c.ours>=c.opp?'good':'bad'):'';
+    return `<tr><td>${c.label}</td><td>${c.ours??'—'}</td><td>${c.opp??'—'}</td><td class="${cls}">${c.ours!=null&&c.opp!=null?((c.ours-c.opp>0?'+':'')+(c.ours-c.opp).toFixed(1)):'—'}</td></tr>`;}).join('');
+  $('#scoutBody').innerHTML=`
+    <div class="card">
+      <div class="row" style="justify-content:space-between">
+        <div><b style="font-size:16px">${d.name}</b> <a href="${d.url}" target="_blank" style="font-size:12px">団ページ↗</a></div>${wr}
+      </div>
+      <div style="font-size:13px;color:var(--mut);margin-top:6px">過去3回 本戦日毎平均: <b>${d.past_avg??'—'}億</b>（霞桜団 ${d.ours_avg??'—'}億）</div>
+    </div>
+    <div class="card"><h2>過去イベント実績</h2><table><tr><th>回</th><th style="text-align:left">日別(億)</th><th>総計</th><th>最終順位</th></tr>${evRows}</table></div>
+    <div class="card"><h2>今回の日別比較（霞桜団 vs 相手）</h2><table><tr><th>日程</th><th>霞桜団</th><th>相手</th><th>差</th></tr>${cmpRows}</table></div>`;
+}
+init();
+</script>
+</body>
+</html>

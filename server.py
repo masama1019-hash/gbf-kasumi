@@ -522,8 +522,191 @@ def api_yosen(q):
             "prev": {"labels": prev["labels"], "ours": prev["ours"], "border": prev["border"]} if prev else None}
 
 
+# ---------- 個人ランキング(個ラン) ----------
+KORAN_LABELS = {1: "予選1", 2: "予選2", 3: "中間", 4: "本戦1", 5: "本戦2", 6: "本戦3", 7: "本戦4"}
+
+
+def user_search(q):
+    d = get(f"{GBF}/users/search?q=" + urllib.parse.quote(q), ttl=300)
+    return (d or {}).get("data") or []
+
+
+def user_histories(uid, pages=6):
+    rows = []
+    for pg in range(1, pages + 1):
+        d = get(f"{GBF}/users/{uid}/histories?page={pg}", ttl=300)
+        data = (d or {}).get("data") or []
+        rows += data
+        if not (d or {}).get("meta", {}).get("has_next"):
+            break
+    return rows
+
+
+def user_border_days(raid):
+    """個人ボーダー rank:2000/100000 の day_of別 日終了累積(億)。pointは通算累積。
+    {target_rank: {day_of: 億}}"""
+    d = get(f"{GBF}/users/borders?raid_number={raid}", ttl=300)
+    out = {}
+    for s in (d or {}).get("data") or []:
+        by = {}
+        for pt in s.get("points") or []:
+            do, p = pt.get("day_of"), pt.get("point")
+            if do is not None and p is not None:
+                by[do] = round(p / 1e8, 1)  # 時刻昇順なので最後=その日終了(30:00/24:00)
+        out[s.get("target_rank")] = by
+    return out
+
+
+def user_border_hourly(raid, date):
+    """個人ボーダー rank:2000/100000 の指定日の時刻毎累積(億)。{target_rank: {time: 億}}"""
+    d = get(f"{GBF}/users/borders?raid_number={raid}", ttl=300)
+    out = {2000: {}, 100000: {}}
+    for s in (d or {}).get("data") or []:
+        tr = s.get("target_rank")
+        if tr not in out:
+            continue
+        for pt in s.get("points") or []:
+            if pt.get("day") == date and pt.get("time") and pt.get("point") is not None:
+                out[tr][pt["time"]] = round(pt["point"] / 1e8, 1)
+    return out
+
+
+def user_rankings_page(raid, date, rank, time_=None, per_page=200):
+    q = {"raid_number": raid, "day": date, "rank": max(1, rank), "per_page": per_page}
+    if time_:
+        q["time"] = time_
+    d = get(f"{GBF}/users/rankings?" + urllib.parse.urlencode(q))
+    return (d or {}).get("data") or []
+
+
+def find_user(raid, date, time_, uid, hint=3000, max_pages=40):
+    """個人rankingsから uid を探す(hint近傍→外側へ拡張)。(point億, rank, hourly_point) or None"""
+    base = ((hint - 1) // 200) * 200 + 1
+    order, tried = [base], set()
+    for dd in range(200, 20000, 200):
+        order += [base + dd, base - dd]
+    for s in order:
+        if s < 1 or s > 300000 or s in tried:
+            continue
+        tried.add(s)
+        for x in user_rankings_page(raid, date, s, time_):
+            if x.get("user_id") == uid:
+                return round(x["point"] / 1e8, 1), x["rank"], x.get("hourly_point")
+        if len(tried) >= max_pages:
+            break
+    return None
+
+
+def koran_hourly(raid, date, uid, hint=3000):
+    """指定日の 本人 と 2000位/100000位 の時刻毎累積・時速(億)。本人はfind_userで並列取得"""
+    b = user_border_hourly(raid, date)
+    b2000, b100k = b.get(2000, {}), b.get(100000, {})
+    times = sorted(set(b2000) | set(b100k), key=lambda t: int(t.split(":")[0]))
+    p_cum, p_rank = {}, {}
+
+    def one(t):
+        return t, find_user(raid, date, t, uid, hint=hint)
+
+    with ThreadPoolExecutor(max_workers=10) as ex:
+        for t, r in ex.map(one, times):
+            if r:
+                p_cum[t], p_rank[t] = r[0], r[1]
+
+    def speed(cum):
+        sp, prev = {}, None
+        for t in times:
+            if t in cum:
+                sp[t] = round(cum[t] - prev, 1) if prev is not None else None
+                prev = cum[t]
+        return sp
+    return {"times": times, "labels": [f"{int(t.split(':')[0]) % 24}時" for t in times],
+            "player": {"cum": p_cum, "rank": p_rank, "speed": speed(p_cum)},
+            "b2000": {"cum": b2000, "speed": speed(b2000)},
+            "b100k": {"cum": b100k, "speed": speed(b100k)}}
+
+
+def api_koran(q):
+    raid = raid_arg(q) or meta_for()["raid"]
+    query = (q.get("q", [""])[0] or "").strip()
+    if not query:
+        return {"error": "プレイヤー名 または ユーザーIDを入力してください"}
+    uid, pname = None, None
+    if re.fullmatch(r"\d{4,10}", query):
+        uid = int(query)
+    else:
+        cands = user_search(query)
+        if not cands:
+            return {"error": f"「{query}」が見つかりません。名前を正確に入力するか、ユーザーIDで指定してください"}
+        if len(cands) > 1:
+            return {"candidates": [{"user_id": c["user_id"], "name": c.get("name"),
+                                    "rank": (c.get("ranking") or {}).get("rank"),
+                                    "point": round(((c.get("ranking") or {}).get("point") or 0) / 1e8, 1)}
+                                   for c in cands[:30]]}
+        uid, pname = cands[0]["user_id"], cands[0].get("name")
+
+    hist = user_histories(uid)
+    ev = {r["day_of"]: r for r in hist if r["raid_number"] == raid}
+    if pname is None:
+        pname = (hist[0].get("name") if hist else None) or f"ID{uid}"
+
+    # 時刻毎モード(対象日が指定された場合): その日の 本人 vs 2000位/10万位 を1H毎に
+    day = (q.get("day", [""])[0] or "").strip()
+    if day:
+        sched = {s["day"]: s["day_of"] for s in meta_for(raid)["schedules"]}
+        do = sched.get(day)
+        hint = (ev.get(do) or {}).get("rank") or 3000
+        h = koran_hourly(raid, day, uid, hint)
+        if not h["times"]:
+            return {"error": "この日の時刻毎データはgbfdataに未収録です"}
+        h.update({"mode": "hourly", "name": pname, "user_id": uid, "raid": raid, "date": day,
+                  "label": KORAN_LABELS.get(do, "")})
+        return h
+
+    borders = user_border_days(raid)
+    b2000, b100k = borders.get(2000, {}), borders.get(100000, {})
+    if not ev and not (b2000 or b100k):
+        return {"error": "この回の個人データはgbfdataに未収録です（古い開催回では個人の記録が残っていません）"}
+
+    cur_player = {do: round(ev[do]["point"] / 1e8, 1) for do in ev}
+    rows = []
+    for do in sorted(set(ev) | set(b2000) | set(b100k)):
+        pl = cur_player.get(do)
+        v2, v1 = b2000.get(do), b100k.get(do)
+        rows.append({"label": KORAN_LABELS.get(do, str(do)), "day_of": do,
+                     "player": pl, "rank": ev[do]["rank"] if do in ev else None,
+                     "b2000": v2, "b100k": v1,
+                     "vs2000": round(pl - v2, 1) if (pl is not None and v2 is not None) else None,
+                     "vs100k": round(pl - v1, 1) if (pl is not None and v1 is not None) else None})
+
+    # 着地見込み: 現時点(各系列の最新day_of)の値 × (前回最終 ÷ 前回同day_of)
+    prev_raid = raid - 1
+    pborders = user_border_days(prev_raid)
+    pev = {r["day_of"]: r for r in hist if r["raid_number"] == prev_raid}
+    prev_player = {do: round(pev[do]["point"] / 1e8, 1) for do in pev}
+    prev = {"player": prev_player, "b2000": pborders.get(2000, {}), "b100k": pborders.get(100000, {})}
+    cur = {"player": cur_player, "b2000": b2000, "b100k": b100k}
+
+    # 基準日は3系列で共通(本人の最新day_of。本人不参加ならボーダー最新)にして整合を取る
+    anchor = max(cur_player) if cur_player else max(set(b2000) | set(b100k), default=None)
+
+    def landing(key):
+        c, p = cur[key], prev[key]
+        if anchor is None or anchor not in c or not p or anchor not in p or not p[anchor]:
+            return None
+        pfin = p[max(p)]                # 前回最終
+        return round(c[anchor] * (pfin / p[anchor]), 1)
+
+    lp, l2, l1 = landing("player"), landing("b2000"), landing("b100k")
+    proj = {"prev_raid": prev_raid, "player": lp, "b2000": l2, "b100k": l1,
+            "vs2000": round(lp - l2, 1) if (lp is not None and l2 is not None) else None,
+            "vs100k": round(lp - l1, 1) if (lp is not None and l1 is not None) else None,
+            "day_of": anchor, "label": KORAN_LABELS.get(anchor, "") if anchor else ""}
+    return {"name": pname, "user_id": uid, "url": f"https://gbfdata.com/user/{uid}",
+            "raid": raid, "rows": rows, "latest": rows[-1] if rows else None, "proj": proj}
+
+
 ROUTES = {"/api/config": api_config, "/api/live": api_live,
-          "/api/scout": api_scout, "/api/yosen": api_yosen}
+          "/api/scout": api_scout, "/api/yosen": api_yosen, "/api/koran": api_koran}
 
 
 class Handler(BaseHTTPRequestHandler):

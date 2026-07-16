@@ -14,6 +14,7 @@ import threading
 import time
 import urllib.parse
 import urllib.request
+from datetime import datetime, timedelta, timezone
 from concurrent.futures import ThreadPoolExecutor
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -712,6 +713,12 @@ def api_koran(q):
     if pname is None:
         pname = (hist[0].get("name") if hist else None) or f"ID{uid}"
 
+    # この回が確定(本戦終了)済みか。新しい回が始まっている or 最終日を過ぎていれば確定
+    _m = meta_for(raid)
+    _last = max((s["day"] for s in _m["schedules"]), default=None)
+    _today = (datetime.now(timezone.utc) + timedelta(hours=9)).date().isoformat()
+    confirmed = (raid < (_m.get("latest") or raid)) or bool(_last and _today > _last)
+
     # 時刻毎モード(対象日が指定された場合): その日の 本人 vs 2000位/10万位 を1H毎に
     day = (q.get("day", [""])[0] or "").strip()
     if day:
@@ -725,7 +732,7 @@ def api_koran(q):
         h["proj"] = koran_time_proj(raid, do, uid, hint, cur_h, h["times"], hist)
         h["past3"] = koran_past3(uid, raid, hist)
         h.update({"mode": "hourly", "name": pname, "user_id": uid, "raid": raid, "date": day,
-                  "label": KORAN_LABELS.get(do, "")})
+                  "label": KORAN_LABELS.get(do, ""), "confirmed": confirmed})
         return h
 
     borders = user_border_days(raid)
@@ -769,7 +776,7 @@ def api_koran(q):
             "day_of": anchor, "label": KORAN_LABELS.get(anchor, "") if anchor else ""}
     return {"name": pname, "user_id": uid, "url": f"https://gbfdata.com/user/{uid}",
             "raid": raid, "rows": rows, "latest": rows[-1] if rows else None, "proj": proj,
-            "past3": koran_past3(uid, raid, hist)}
+            "past3": koran_past3(uid, raid, hist), "confirmed": confirmed}
 
 
 ROUTES = {"/api/config": api_config, "/api/live": api_live,

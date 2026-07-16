@@ -641,9 +641,9 @@ GW_BORDER_FINAL = {
 
 
 def koran_past3(uid, raid, hist):
-    """各ライン(本人/2000位/10万位)の直近過去3回(raid-1,-2,-3)の最終着地(億)。
+    """各ライン(本人/2000位/10万位)の直近過去6回(raid-1..-6)の最終着地(億)。
     2000位/10万位はgbfdata優先、無ければGameWith履歴(GW_BORDER_FINAL)で補完"""
-    raids = [raid - 1, raid - 2, raid - 3]
+    raids = [raid - k for k in range(1, 7)]
     out = {"raids": raids, "labels": [f"第{r}回" for r in raids], "player": [], "b2000": [], "b100k": []}
     for r in raids:
         bd = user_border_days(r)

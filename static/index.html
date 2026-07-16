@@ -84,6 +84,12 @@
       <input id="koranQ" placeholder="プレイヤー名 または ユーザーID" style="flex:1;min-width:180px">
       <label style="font-size:13px;color:var(--mut)">表示</label>
       <select id="koranDay"></select>
+      <label style="font-size:13px;color:var(--mut)">比較</label>
+      <select id="koranTgt">
+        <option value="both">両方</option>
+        <option value="2000">英雄(2000位)</option>
+        <option value="100k">10万位</option>
+      </select>
       <button class="primary" onclick="loadKoran()">検索</button>
     </div>
     <div style="font-size:11px;color:var(--mut);margin-top:6px">個人貢献度を 英雄ライン(2000位)・10万位ライン と比較。「表示」で概要(日別)か対象日の時刻毎(1H)を選択。名前が複数該当時は一覧から選択。開催回はヘッダーのセレクタで切替。</div>
@@ -367,41 +373,47 @@ async function loadKoran(){
     return;
   }
   if(d.mode==='hourly'){ return koranHourlyView(d); }
+  const tg=$('#koranTgt').value, s2=tg!=='100k', s1=tg!=='2000';
   const L=d.latest||{};
   const vs2=v=> v==null?'':(v>=0?`<span class="good">英雄ライン超え +${f1(v)}億</span>`:`英雄ラインまで ${f1(-v)}億`);
   const vs1=v=> v==null?'':(v>=0?`<span class="good">10万位 圏内 +${f1(v)}億</span>`:`<span class="bad">10万位まで ${f1(-v)}億</span>`);
   const cards=`<div class="metrics">
     <div class="metric"><div class="l">${d.name} 累積貢献度</div><div class="v">${f1(L.player)}<span style="font-size:12px">億</span></div><div class="s">${L.rank?L.rank+'位':''}${L.label?`（${L.label}時点）`:''}</div></div>
-    <div class="metric"><div class="l">英雄ライン(2000位)</div><div class="v">${f1(L.b2000)}<span style="font-size:12px">億</span></div><div class="s">${vs2(L.vs2000)}</div></div>
-    <div class="metric"><div class="l">10万位ライン</div><div class="v">${f1(L.b100k)}<span style="font-size:12px">億</span></div><div class="s">${vs1(L.vs100k)}</div></div>
+    ${s2?`<div class="metric"><div class="l">英雄ライン(2000位)</div><div class="v">${f1(L.b2000)}<span style="font-size:12px">億</span></div><div class="s">${vs2(L.vs2000)}</div></div>`:''}
+    ${s1?`<div class="metric"><div class="l">10万位ライン</div><div class="v">${f1(L.b100k)}<span style="font-size:12px">億</span></div><div class="s">${vs1(L.vs100k)}</div></div>`:''}
   </div>`;
   const P=d.proj||{};
   const projNote=(v2,v1)=>{const s=[];
-    if(v2!=null)s.push(v2>=0?`<span class="good">英雄ライン到達見込み +${f1(v2)}億</span>`:`英雄ラインまで ${f1(-v2)}億`);
-    if(v1!=null)s.push(v1>=0?`10万位 圏内見込み`:`<span class="bad">10万位 圏外見込み</span>`);
+    if(s2&&v2!=null)s.push(v2>=0?`<span class="good">英雄ライン到達見込み +${f1(v2)}億</span>`:`英雄ラインまで ${f1(-v2)}億`);
+    if(s1&&v1!=null)s.push(v1>=0?`10万位 圏内見込み`:`<span class="bad">10万位 圏外見込み</span>`);
     return s.join(' / ');};
   const projSection=(P.player!=null||P.b2000!=null||P.b100k!=null)?`
     <div class="card" style="padding-bottom:4px"><h2>着地見込み（前回第${P.prev_raid}回のペース比${P.label?` ／ ${P.label}時点を基準`:''}）</h2>
     <div class="metrics">
       <div class="metric"><div class="l">${d.name} 着地見込み</div><div class="v">${f1(P.player)}<span style="font-size:12px">億</span></div><div class="s">${projNote(P.vs2000,P.vs100k)}</div></div>
-      <div class="metric"><div class="l">英雄ライン(2000位) 着地</div><div class="v">${f1(P.b2000)}<span style="font-size:12px">億</span></div><div class="s">前回最終からの予測</div></div>
-      <div class="metric"><div class="l">10万位ライン 着地</div><div class="v">${f1(P.b100k)}<span style="font-size:12px">億</span></div><div class="s">前回最終からの予測</div></div>
+      ${s2?`<div class="metric"><div class="l">英雄ライン(2000位) 着地</div><div class="v">${f1(P.b2000)}<span style="font-size:12px">億</span></div><div class="s">前回最終からの予測</div></div>`:''}
+      ${s1?`<div class="metric"><div class="l">10万位ライン 着地</div><div class="v">${f1(P.b100k)}<span style="font-size:12px">億</span></div><div class="s">前回最終からの予測</div></div>`:''}
     </div></div>`:'';
-  const trows=d.rows.map(r=>`<tr><td>${r.label}</td><td>${f1(r.player)}</td><td style="color:var(--mut)">${r.rank?r.rank+'位':'—'}</td><td>${f1(r.b2000)}</td><td class="${r.vs2000!=null?(r.vs2000>=0?'good':'bad'):''}">${r.vs2000!=null?(r.vs2000>=0?'+':'')+f1(r.vs2000):'—'}</td><td>${f1(r.b100k)}</td><td class="${r.vs100k!=null?(r.vs100k>=0?'good':'bad'):''}">${r.vs100k!=null?(r.vs100k>=0?'+':'')+f1(r.vs100k):'—'}</td></tr>`).join('');
+  const cell=(v,neg)=>`<td class="${v!=null?(v>=0?'good':'bad'):''}">${v!=null?(v>=0?'+':'')+f1(v):'—'}</td>`;
+  const trows=d.rows.map(r=>`<tr><td>${r.label}</td><td>${f1(r.player)}</td><td style="color:var(--mut)">${r.rank?r.rank+'位':'—'}</td>`
+    +(s2?`<td>${f1(r.b2000)}</td>${cell(r.vs2000)}`:'')
+    +(s1?`<td>${f1(r.b100k)}</td>${cell(r.vs100k)}`:'')+`</tr>`).join('');
+  const chartLbl=[s2&&'赤=英雄(2000位)',s1&&'緑=10万位'].filter(Boolean).join(' / ');
   $('#koranBody').innerHTML=`
     <div class="card"><div class="row" style="justify-content:space-between"><div><b style="font-size:16px">${d.name}</b> <a href="${d.url}" target="_blank" style="font-size:12px">gbfdata↗</a></div></div></div>
     ${cards}
     ${projSection}
-    <div class="card"><h2>累積貢献度の推移（億）— 青=本人 / 赤=英雄(2000位) / 緑=10万位</h2><div class="chartbox"><canvas id="kCum"></canvas></div></div>
-    <div class="card"><h2>日別の比較（数値・億）</h2><div style="overflow-x:auto"><table><tr><th>日程</th><th>${d.name}</th><th>順位</th><th>英雄(2000位)</th><th>差</th><th>10万位</th><th>差</th></tr>${trows}</table></div></div>`;
+    <div class="card"><h2>累積貢献度の推移（億）— 青=本人${chartLbl?' / '+chartLbl:''}</h2><div class="chartbox"><canvas id="kCum"></canvas></div></div>
+    <div class="card"><h2>日別の比較（数値・億）</h2><div style="overflow-x:auto"><table><tr><th>日程</th><th>${d.name}</th><th>順位</th>${s2?'<th>英雄(2000位)</th><th>差</th>':''}${s1?'<th>10万位</th><th>差</th>':''}</tr>${trows}</table></div></div>`;
   const Lx=d.rows.map(r=>r.label);
   mkChart('#kCum','line',Lx,[
     {label:d.name,data:d.rows.map(r=>r.player),borderColor:'#378ADD',backgroundColor:'#378ADD',tension:0.2,borderWidth:2.5,pointRadius:3},
-    {label:'英雄(2000位)',data:d.rows.map(r=>r.b2000),borderColor:'#D85A30',borderDash:[5,4],tension:0.2,borderWidth:2,pointRadius:0},
-    {label:'10万位',data:d.rows.map(r=>r.b100k),borderColor:'#1D9E75',borderDash:[5,4],tension:0.2,borderWidth:2,pointRadius:0}
+    ...(s2?[{label:'英雄(2000位)',data:d.rows.map(r=>r.b2000),borderColor:'#D85A30',borderDash:[5,4],tension:0.2,borderWidth:2,pointRadius:0}]:[]),
+    ...(s1?[{label:'10万位',data:d.rows.map(r=>r.b100k),borderColor:'#1D9E75',borderDash:[5,4],tension:0.2,borderWidth:2,pointRadius:0}]:[])
   ]);
 }
 function koranHourlyView(d){
+  const tg=$('#koranTgt').value, s2=tg!=='100k', s1=tg!=='2000';
   const T=d.times, Lx=d.labels;
   const pc=d.player.cum, prk=d.player.rank, psp=d.player.speed;
   const b2=d.b2000.cum, b2s=d.b2000.speed, b1=d.b100k.cum, b1s=d.b100k.speed;
@@ -412,26 +424,30 @@ function koranHourlyView(d){
   const d2=(pv!=null&&v2!=null)?pv-v2:null, d1=(pv!=null&&v1!=null)?pv-v1:null;
   const cards=`<div class="metrics">
     <div class="metric"><div class="l">${d.name}（${li||''}時点）</div><div class="v">${f1(pv)}<span style="font-size:12px">億</span></div><div class="s">${li!=null&&prk[li]?prk[li]+'位':''}</div></div>
-    <div class="metric"><div class="l">英雄ライン(2000位)</div><div class="v">${f1(v2)}<span style="font-size:12px">億</span></div><div class="s">${d2!=null?(d2>=0?`<span class="good">超え +${f1(d2)}億</span>`:`あと ${f1(-d2)}億`):''}</div></div>
-    <div class="metric"><div class="l">10万位ライン</div><div class="v">${f1(v1)}<span style="font-size:12px">億</span></div><div class="s">${d1!=null?(d1>=0?`<span class="good">圏内 +${f1(d1)}億</span>`:`<span class="bad">あと ${f1(-d1)}億</span>`):''}</div></div>
+    ${s2?`<div class="metric"><div class="l">英雄ライン(2000位)</div><div class="v">${f1(v2)}<span style="font-size:12px">億</span></div><div class="s">${d2!=null?(d2>=0?`<span class="good">超え +${f1(d2)}億</span>`:`あと ${f1(-d2)}億`):''}</div></div>`:''}
+    ${s1?`<div class="metric"><div class="l">10万位ライン</div><div class="v">${f1(v1)}<span style="font-size:12px">億</span></div><div class="s">${d1!=null?(d1>=0?`<span class="good">圏内 +${f1(d1)}億</span>`:`<span class="bad">あと ${f1(-d1)}億</span>`):''}</div></div>`:''}
   </div>`;
-  const trows=T.map(t=>{const dd=(pc[t]!=null&&b2[t]!=null)?pc[t]-b2[t]:null;
-    return `<tr><td>${Lx[T.indexOf(t)]}</td><td>${f1(pc[t])}</td><td style="color:var(--mut)">${prk[t]?prk[t]+'位':'—'}</td><td style="color:var(--mut)">${f1(psp[t])}</td><td>${f1(b2[t])}</td><td style="color:var(--mut)">${f1(b2s[t])}</td><td class="${dd!=null?(dd>=0?'good':'bad'):''}">${dd!=null?(dd>=0?'+':'')+f1(dd):'—'}</td><td>${f1(b1[t])}</td><td style="color:var(--mut)">${f1(b1s[t])}</td></tr>`;}).join('');
+  const dcell=v=>`<td class="${v!=null?(v>=0?'good':'bad'):''}">${v!=null?(v>=0?'+':'')+f1(v):'—'}</td>`;
+  const trows=T.map(t=>{const dd2=(pc[t]!=null&&b2[t]!=null)?pc[t]-b2[t]:null, dd1=(pc[t]!=null&&b1[t]!=null)?pc[t]-b1[t]:null;
+    return `<tr><td>${Lx[T.indexOf(t)]}</td><td>${f1(pc[t])}</td><td style="color:var(--mut)">${prk[t]?prk[t]+'位':'—'}</td><td style="color:var(--mut)">${f1(psp[t])}</td>`
+      +(s2?`<td>${f1(b2[t])}</td><td style="color:var(--mut)">${f1(b2s[t])}</td>${dcell(dd2)}`:'')
+      +(s1?`<td>${f1(b1[t])}</td><td style="color:var(--mut)">${f1(b1s[t])}</td>${dcell(dd1)}`:'')+`</tr>`;}).join('');
+  const chartLbl=[s2&&'赤=英雄(2000位)',s1&&'緑=10万位'].filter(Boolean).join(' / ');
   $('#koranBody').innerHTML=`
     <div class="card"><div class="row" style="justify-content:space-between"><div><b style="font-size:16px">${d.name}</b> <a href="${d.url}" target="_blank" style="font-size:12px">gbfdata↗</a> <span style="font-size:12px;color:var(--mut)">${d.label} 時刻毎</span></div></div></div>
     ${cards}
-    <div class="card"><h2>${d.label} 累積の推移（億・1H）— 青=本人 / 赤=英雄(2000位) / 緑=10万位</h2><div class="chartbox"><canvas id="kCumH"></canvas></div></div>
+    <div class="card"><h2>${d.label} 累積の推移（億・1H）— 青=本人${chartLbl?' / '+chartLbl:''}</h2><div class="chartbox"><canvas id="kCumH"></canvas></div></div>
     <div class="card"><h2>時速（億/h・1H）</h2><div class="chartbox"><canvas id="kSpdH"></canvas></div></div>
-    <div class="card"><h2>${d.label} 時刻毎（数値・億）</h2><div style="overflow-x:auto"><table><tr><th>時刻</th><th>${d.name}</th><th>順位</th><th>時速</th><th>2000位</th><th>時速</th><th>差</th><th>10万位</th><th>時速</th></tr>${trows}</table></div></div>`;
+    <div class="card"><h2>${d.label} 時刻毎（数値・億）</h2><div style="overflow-x:auto"><table><tr><th>時刻</th><th>${d.name}</th><th>順位</th><th>時速</th>${s2?'<th>2000位</th><th>時速</th><th>差</th>':''}${s1?'<th>10万位</th><th>時速</th><th>差</th>':''}</tr>${trows}</table></div></div>`;
   mkChart('#kCumH','line',Lx,[
     {label:d.name,data:T.map(t=>pc[t]??null),borderColor:'#378ADD',backgroundColor:'#378ADD',tension:0.2,borderWidth:2.5,pointRadius:2,spanGaps:true},
-    {label:'英雄(2000位)',data:T.map(t=>b2[t]??null),borderColor:'#D85A30',borderDash:[5,4],tension:0.2,borderWidth:2,pointRadius:0,spanGaps:true},
-    {label:'10万位',data:T.map(t=>b1[t]??null),borderColor:'#1D9E75',borderDash:[5,4],tension:0.2,borderWidth:2,pointRadius:0,spanGaps:true}
+    ...(s2?[{label:'英雄(2000位)',data:T.map(t=>b2[t]??null),borderColor:'#D85A30',borderDash:[5,4],tension:0.2,borderWidth:2,pointRadius:0,spanGaps:true}]:[]),
+    ...(s1?[{label:'10万位',data:T.map(t=>b1[t]??null),borderColor:'#1D9E75',borderDash:[5,4],tension:0.2,borderWidth:2,pointRadius:0,spanGaps:true}]:[])
   ]);
   mkChart('#kSpdH','line',Lx,[
     {label:d.name,data:T.map(t=>psp[t]??null),borderColor:'#378ADD',tension:0.2,borderWidth:2,pointRadius:2,spanGaps:true},
-    {label:'英雄(2000位)',data:T.map(t=>b2s[t]??null),borderColor:'#D85A30',borderDash:[5,4],tension:0.2,borderWidth:1.5,pointRadius:0,spanGaps:true},
-    {label:'10万位',data:T.map(t=>b1s[t]??null),borderColor:'#1D9E75',borderDash:[5,4],tension:0.2,borderWidth:1.5,pointRadius:0,spanGaps:true}
+    ...(s2?[{label:'英雄(2000位)',data:T.map(t=>b2s[t]??null),borderColor:'#D85A30',borderDash:[5,4],tension:0.2,borderWidth:1.5,pointRadius:0,spanGaps:true}]:[]),
+    ...(s1?[{label:'10万位',data:T.map(t=>b1s[t]??null),borderColor:'#1D9E75',borderDash:[5,4],tension:0.2,borderWidth:1.5,pointRadius:0,spanGaps:true}]:[])
   ]);
 }
 init();

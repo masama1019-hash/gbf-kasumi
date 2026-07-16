@@ -625,6 +625,69 @@ def koran_hourly(raid, date, uid, hint=3000):
             "b100k": {"cum": b100k, "speed": speed(b100k)}}
 
 
+def _fin(b):
+    return b[max(b)] if b else None
+
+
+# 個人ボーダー最終着地(億)フォールバック。gbfdataが個人ボーダーを収録しない過去回
+# (81回以前)の「直近3回の着地」参考用。出典: グランブルーファンタジー.gamewith.jp
+# /article/show/91154 (第82・83回はgbfdata実値と一致で検証済み)
+GW_BORDER_FINAL = {
+    83: {"b2000": 502.3, "b100k": 64.6}, 82: {"b2000": 456.3, "b100k": 70.5},
+    81: {"b2000": 361.2, "b100k": 50.3}, 80: {"b2000": 234.7, "b100k": 33.1},
+    79: {"b2000": 241.4, "b100k": 31.3}, 78: {"b2000": 179.4, "b100k": 23.8},
+    77: {"b2000": 219.4, "b100k": 34.7},
+}
+
+
+def koran_past3(uid, raid, hist):
+    """各ライン(本人/2000位/10万位)の直近過去3回(raid-1,-2,-3)の最終着地(億)。
+    2000位/10万位はgbfdata優先、無ければGameWith履歴(GW_BORDER_FINAL)で補完"""
+    raids = [raid - 1, raid - 2, raid - 3]
+    out = {"raids": raids, "labels": [f"第{r}回" for r in raids], "player": [], "b2000": [], "b100k": []}
+    for r in raids:
+        bd = user_border_days(r)
+        fb = GW_BORDER_FINAL.get(r, {})
+        out["b2000"].append(_fin(bd.get(2000, {})) or fb.get("b2000"))
+        out["b100k"].append(_fin(bd.get(100000, {})) or fb.get("b100k"))
+        pe = {x["day_of"]: x for x in hist if x["raid_number"] == r}
+        out["player"].append(round(pe[max(pe)]["point"] / 1e8, 1) if pe else None)
+    return out
+
+
+def koran_time_proj(raid, do, uid, hint, cur, times, hist):
+    """時点(最新時刻)での前回比較着地予想。前回開催の同day_of・同時刻に揃えて
+    現時点値 ×(前回最終 ÷ 前回同時点)で予測。cur={key:{time:億}}"""
+    prev_raid = raid - 1
+    pdate = {s["day_of"]: s["day"] for s in meta_for(prev_raid)["schedules"]}.get(do)
+    if not pdate:
+        return None
+    pbh = user_border_hourly(prev_raid, pdate)
+    pbd = user_border_days(prev_raid)
+    pf = {"b2000": _fin(pbd.get(2000, {})), "b100k": _fin(pbd.get(100000, {}))}
+    ph = {x["day_of"]: x for x in hist if x["raid_number"] == prev_raid}
+    pfp = round(ph[max(ph)]["point"] / 1e8, 1) if ph else None
+
+    def latest(m):
+        return next((t for t in reversed(times) if m.get(t) is not None), None)
+
+    def bproj(key, tr):
+        t = latest(cur[key])
+        pv = pbh.get(tr, {}).get(t) if t else None
+        return round(cur[key][t] * (pf[key] / pv), 1) if (t and pv and pf[key]) else None
+
+    p2, p1 = bproj("b2000", 2000), bproj("b100k", 100000)
+    tp = latest(cur["player"])
+    pp = None
+    if tp and pfp:
+        r = find_user(prev_raid, pdate, tp, uid, hint=(ph.get(do) or {}).get("rank") or hint)
+        if r and r[0]:
+            pp = round(cur["player"][tp] * (pfp / r[0]), 1)
+    return {"prev_raid": prev_raid, "time": tp, "player": pp, "b2000": p2, "b100k": p1,
+            "vs2000": round(pp - p2, 1) if (pp is not None and p2 is not None) else None,
+            "vs100k": round(pp - p1, 1) if (pp is not None and p1 is not None) else None}
+
+
 def api_koran(q):
     raid = raid_arg(q) or meta_for()["raid"]
     query = (q.get("q", [""])[0] or "").strip()
@@ -658,6 +721,9 @@ def api_koran(q):
         h = koran_hourly(raid, day, uid, hint)
         if not h["times"]:
             return {"error": "この日の時刻毎データはgbfdataに未収録です"}
+        cur_h = {"player": h["player"]["cum"], "b2000": h["b2000"]["cum"], "b100k": h["b100k"]["cum"]}
+        h["proj"] = koran_time_proj(raid, do, uid, hint, cur_h, h["times"], hist)
+        h["past3"] = koran_past3(uid, raid, hist)
         h.update({"mode": "hourly", "name": pname, "user_id": uid, "raid": raid, "date": day,
                   "label": KORAN_LABELS.get(do, "")})
         return h
@@ -702,7 +768,8 @@ def api_koran(q):
             "vs100k": round(lp - l1, 1) if (lp is not None and l1 is not None) else None,
             "day_of": anchor, "label": KORAN_LABELS.get(anchor, "") if anchor else ""}
     return {"name": pname, "user_id": uid, "url": f"https://gbfdata.com/user/{uid}",
-            "raid": raid, "rows": rows, "latest": rows[-1] if rows else None, "proj": proj}
+            "raid": raid, "rows": rows, "latest": rows[-1] if rows else None, "proj": proj,
+            "past3": koran_past3(uid, raid, hist)}
 
 
 ROUTES = {"/api/config": api_config, "/api/live": api_live,

@@ -366,7 +366,7 @@ function koranPast3Html(p3,s2,s1,name){
   let rows=row(name,p3.player);
   if(s2) rows+=row('英雄(2000位)',p3.b2000);
   if(s1) rows+=row('10万位',p3.b100k);
-  return `<div class="card"><h2>参考：直近3回の着地（億）</h2><div style="overflow-x:auto"><table><tr><th style="text-align:left">ライン</th>${head}</tr>${rows}</table></div>
+  return `<div class="card"><h2>参考：直近6回の着地（億）</h2><div style="overflow-x:auto"><table><tr><th style="text-align:left">ライン</th>${head}</tr>${rows}</table></div>
     <div style="font-size:11px;color:var(--mut);margin-top:6px">※2000位/10万位はgbfdata優先、無い回はGameWith履歴で補完（第77回まで。それ以前は—）。本人は履歴のある範囲で表示。</div></div>`;
 }
 function koranTimeProjHtml(P,s2,s1,name){

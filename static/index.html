@@ -42,6 +42,7 @@
   <div class="tabs">
     <button class="tab on" data-tab="live">ライブ</button>
     <button class="tab" data-tab="scout">サーチ</button>
+    <button class="tab" data-tab="koran">個ラン</button>
   </div>
 </header>
 <main>
@@ -77,6 +78,19 @@
   <div id="scoutBody"></div>
 </div>
 
+<div id="pane-koran" class="hide">
+  <div class="card">
+    <div class="row">
+      <input id="koranQ" placeholder="プレイヤー名 または ユーザーID" style="flex:1;min-width:180px">
+      <label style="font-size:13px;color:var(--mut)">表示</label>
+      <select id="koranDay"></select>
+      <button class="primary" onclick="loadKoran()">検索</button>
+    </div>
+    <div style="font-size:11px;color:var(--mut);margin-top:6px">個人貢献度を 英雄ライン(2000位)・10万位ライン と比較。「表示」で概要(日別)か対象日の時刻毎(1H)を選択。名前が複数該当時は一覧から選択。開催回はヘッダーのセレクタで切替。</div>
+  </div>
+  <div id="koranBody"><div class="load">プレイヤー名かユーザーIDを入れて「検索」</div></div>
+</div>
+
 </main>
 <script>
 const $=s=>document.querySelector(s);
@@ -88,6 +102,7 @@ document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>{
   b.classList.add('on');
   $('#pane-live').classList.toggle('hide', b.dataset.tab!=='live');
   $('#pane-scout').classList.toggle('hide', b.dataset.tab!=='scout');
+  $('#pane-koran').classList.toggle('hide', b.dataset.tab!=='koran');
 });
 function mkChart(id,type,labels,datasets,extra={}){
   if(charts[id]) charts[id].destroy();
@@ -127,9 +142,17 @@ async function init(raid){
   if(!rs.options.length){
     (cfg.raids||[cfg.raid]).forEach(r=>{const o=document.createElement('option');o.value=r;o.textContent=`第${r}回`;rs.appendChild(o);});
     rs.value=cfg.raid;
-    rs.onchange=()=>{init(rs.value); $('#liveBody').innerHTML='<div class="load">「更新」を押すと集計します</div>'; $('#scoutBody').innerHTML='';};
+    rs.onchange=()=>{init(rs.value); $('#liveBody').innerHTML='<div class="load">「更新」を押すと集計します</div>'; $('#scoutBody').innerHTML=''; $('#koranBody').innerHTML='<div class="load">プレイヤー名かユーザーIDを入れて「検索」</div>';};
   }
   fillDates();
+  fillKoranDays();
+}
+const KORAN_LBL={1:'予選1',2:'予選2',3:'中間',4:'本戦1',5:'本戦2',6:'本戦3',7:'本戦4'};
+function fillKoranDays(){
+  const sel=$('#koranDay'); if(!sel) return; sel.innerHTML='';
+  const o0=document.createElement('option'); o0.value=''; o0.textContent='概要(日別)'; sel.appendChild(o0);
+  (cfg.schedules||[]).slice().sort((a,b)=>a.day_of-b.day_of).forEach(s=>{
+    const o=document.createElement('option'); o.value=s.day; o.textContent=`${KORAN_LBL[s.day_of]||s.day_of} (1H)`; sel.appendChild(o);});
 }
 function paceJudge(ratio){
   if(ratio==null) return null;
@@ -329,6 +352,87 @@ async function loadScout(){
     </div>
     <div class="card"><h2>過去イベント実績</h2><table><tr><th>回</th><th style="text-align:left">日別(億)</th><th>総計</th><th>最終順位</th></tr>${evRows}</table></div>
     <div class="card"><h2>今回の日別比較（霞桜団 vs 相手）</h2><table><tr><th>日程</th><th>霞桜団</th><th>相手</th><th>差</th></tr>${cmpRows}</table></div>`;
+}
+async function loadKoran(){
+  const q=$('#koranQ').value.trim(); if(!q)return;
+  const day=$('#koranDay').value;
+  $('#koranBody').innerHTML=`<div class="load">${day?'時刻毎データ取得中…(初回は30秒ほど)':'検索中…(初回は30秒ほど)'}</div>`;
+  let d;
+  try{ d=await (await fetch('/api/koran?q='+encodeURIComponent(q)+'&raid='+$('#raidSel').value+(day?'&day='+day:''))).json(); }
+  catch(e){ $('#koranBody').innerHTML='<div class="card bad">取得に時間がかかり切断されました。もう一度「検索」を押してください</div>'; return; }
+  if(d.error){$('#koranBody').innerHTML=`<div class="card bad">${d.error}</div>`;return;}
+  if(d.candidates){
+    const rows=d.candidates.map(c=>`<tr><td style="text-align:left">${c.name}</td><td>${c.rank?c.rank+'位':'—'}</td><td>${f1(c.point)}億</td><td><button onclick="$('#koranQ').value='${c.user_id}';loadKoran()">このプレイヤー</button></td></tr>`).join('');
+    $('#koranBody').innerHTML=`<div class="card"><h2>該当プレイヤーが${d.candidates.length}件 — 現在順位・累積で選択</h2><table><tr><th style="text-align:left">名前</th><th>現順位</th><th>累積</th><th></th></tr>${rows}</table></div>`;
+    return;
+  }
+  if(d.mode==='hourly'){ return koranHourlyView(d); }
+  const L=d.latest||{};
+  const vs2=v=> v==null?'':(v>=0?`<span class="good">英雄ライン超え +${f1(v)}億</span>`:`英雄ラインまで ${f1(-v)}億`);
+  const vs1=v=> v==null?'':(v>=0?`<span class="good">10万位 圏内 +${f1(v)}億</span>`:`<span class="bad">10万位まで ${f1(-v)}億</span>`);
+  const cards=`<div class="metrics">
+    <div class="metric"><div class="l">${d.name} 累積貢献度</div><div class="v">${f1(L.player)}<span style="font-size:12px">億</span></div><div class="s">${L.rank?L.rank+'位':''}${L.label?`（${L.label}時点）`:''}</div></div>
+    <div class="metric"><div class="l">英雄ライン(2000位)</div><div class="v">${f1(L.b2000)}<span style="font-size:12px">億</span></div><div class="s">${vs2(L.vs2000)}</div></div>
+    <div class="metric"><div class="l">10万位ライン</div><div class="v">${f1(L.b100k)}<span style="font-size:12px">億</span></div><div class="s">${vs1(L.vs100k)}</div></div>
+  </div>`;
+  const P=d.proj||{};
+  const projNote=(v2,v1)=>{const s=[];
+    if(v2!=null)s.push(v2>=0?`<span class="good">英雄ライン到達見込み +${f1(v2)}億</span>`:`英雄ラインまで ${f1(-v2)}億`);
+    if(v1!=null)s.push(v1>=0?`10万位 圏内見込み`:`<span class="bad">10万位 圏外見込み</span>`);
+    return s.join(' / ');};
+  const projSection=(P.player!=null||P.b2000!=null||P.b100k!=null)?`
+    <div class="card" style="padding-bottom:4px"><h2>着地見込み（前回第${P.prev_raid}回のペース比${P.label?` ／ ${P.label}時点を基準`:''}）</h2>
+    <div class="metrics">
+      <div class="metric"><div class="l">${d.name} 着地見込み</div><div class="v">${f1(P.player)}<span style="font-size:12px">億</span></div><div class="s">${projNote(P.vs2000,P.vs100k)}</div></div>
+      <div class="metric"><div class="l">英雄ライン(2000位) 着地</div><div class="v">${f1(P.b2000)}<span style="font-size:12px">億</span></div><div class="s">前回最終からの予測</div></div>
+      <div class="metric"><div class="l">10万位ライン 着地</div><div class="v">${f1(P.b100k)}<span style="font-size:12px">億</span></div><div class="s">前回最終からの予測</div></div>
+    </div></div>`:'';
+  const trows=d.rows.map(r=>`<tr><td>${r.label}</td><td>${f1(r.player)}</td><td style="color:var(--mut)">${r.rank?r.rank+'位':'—'}</td><td>${f1(r.b2000)}</td><td class="${r.vs2000!=null?(r.vs2000>=0?'good':'bad'):''}">${r.vs2000!=null?(r.vs2000>=0?'+':'')+f1(r.vs2000):'—'}</td><td>${f1(r.b100k)}</td><td class="${r.vs100k!=null?(r.vs100k>=0?'good':'bad'):''}">${r.vs100k!=null?(r.vs100k>=0?'+':'')+f1(r.vs100k):'—'}</td></tr>`).join('');
+  $('#koranBody').innerHTML=`
+    <div class="card"><div class="row" style="justify-content:space-between"><div><b style="font-size:16px">${d.name}</b> <a href="${d.url}" target="_blank" style="font-size:12px">gbfdata↗</a></div></div></div>
+    ${cards}
+    ${projSection}
+    <div class="card"><h2>累積貢献度の推移（億）— 青=本人 / 赤=英雄(2000位) / 緑=10万位</h2><div class="chartbox"><canvas id="kCum"></canvas></div></div>
+    <div class="card"><h2>日別の比較（数値・億）</h2><div style="overflow-x:auto"><table><tr><th>日程</th><th>${d.name}</th><th>順位</th><th>英雄(2000位)</th><th>差</th><th>10万位</th><th>差</th></tr>${trows}</table></div></div>`;
+  const Lx=d.rows.map(r=>r.label);
+  mkChart('#kCum','line',Lx,[
+    {label:d.name,data:d.rows.map(r=>r.player),borderColor:'#378ADD',backgroundColor:'#378ADD',tension:0.2,borderWidth:2.5,pointRadius:3},
+    {label:'英雄(2000位)',data:d.rows.map(r=>r.b2000),borderColor:'#D85A30',borderDash:[5,4],tension:0.2,borderWidth:2,pointRadius:0},
+    {label:'10万位',data:d.rows.map(r=>r.b100k),borderColor:'#1D9E75',borderDash:[5,4],tension:0.2,borderWidth:2,pointRadius:0}
+  ]);
+}
+function koranHourlyView(d){
+  const T=d.times, Lx=d.labels;
+  const pc=d.player.cum, prk=d.player.rank, psp=d.player.speed;
+  const b2=d.b2000.cum, b2s=d.b2000.speed, b1=d.b100k.cum, b1s=d.b100k.speed;
+  // 最新時刻の値
+  const li=[...T].reverse().find(t=>pc[t]!=null);
+  const lb=T[T.length-1];
+  const pv=li!=null?pc[li]:null, v2=lb?b2[lb]:null, v1=lb?b1[lb]:null;
+  const d2=(pv!=null&&v2!=null)?pv-v2:null, d1=(pv!=null&&v1!=null)?pv-v1:null;
+  const cards=`<div class="metrics">
+    <div class="metric"><div class="l">${d.name}（${li||''}時点）</div><div class="v">${f1(pv)}<span style="font-size:12px">億</span></div><div class="s">${li!=null&&prk[li]?prk[li]+'位':''}</div></div>
+    <div class="metric"><div class="l">英雄ライン(2000位)</div><div class="v">${f1(v2)}<span style="font-size:12px">億</span></div><div class="s">${d2!=null?(d2>=0?`<span class="good">超え +${f1(d2)}億</span>`:`あと ${f1(-d2)}億`):''}</div></div>
+    <div class="metric"><div class="l">10万位ライン</div><div class="v">${f1(v1)}<span style="font-size:12px">億</span></div><div class="s">${d1!=null?(d1>=0?`<span class="good">圏内 +${f1(d1)}億</span>`:`<span class="bad">あと ${f1(-d1)}億</span>`):''}</div></div>
+  </div>`;
+  const trows=T.map(t=>{const dd=(pc[t]!=null&&b2[t]!=null)?pc[t]-b2[t]:null;
+    return `<tr><td>${Lx[T.indexOf(t)]}</td><td>${f1(pc[t])}</td><td style="color:var(--mut)">${prk[t]?prk[t]+'位':'—'}</td><td style="color:var(--mut)">${f1(psp[t])}</td><td>${f1(b2[t])}</td><td style="color:var(--mut)">${f1(b2s[t])}</td><td class="${dd!=null?(dd>=0?'good':'bad'):''}">${dd!=null?(dd>=0?'+':'')+f1(dd):'—'}</td><td>${f1(b1[t])}</td><td style="color:var(--mut)">${f1(b1s[t])}</td></tr>`;}).join('');
+  $('#koranBody').innerHTML=`
+    <div class="card"><div class="row" style="justify-content:space-between"><div><b style="font-size:16px">${d.name}</b> <a href="${d.url}" target="_blank" style="font-size:12px">gbfdata↗</a> <span style="font-size:12px;color:var(--mut)">${d.label} 時刻毎</span></div></div></div>
+    ${cards}
+    <div class="card"><h2>${d.label} 累積の推移（億・1H）— 青=本人 / 赤=英雄(2000位) / 緑=10万位</h2><div class="chartbox"><canvas id="kCumH"></canvas></div></div>
+    <div class="card"><h2>時速（億/h・1H）</h2><div class="chartbox"><canvas id="kSpdH"></canvas></div></div>
+    <div class="card"><h2>${d.label} 時刻毎（数値・億）</h2><div style="overflow-x:auto"><table><tr><th>時刻</th><th>${d.name}</th><th>順位</th><th>時速</th><th>2000位</th><th>時速</th><th>差</th><th>10万位</th><th>時速</th></tr>${trows}</table></div></div>`;
+  mkChart('#kCumH','line',Lx,[
+    {label:d.name,data:T.map(t=>pc[t]??null),borderColor:'#378ADD',backgroundColor:'#378ADD',tension:0.2,borderWidth:2.5,pointRadius:2,spanGaps:true},
+    {label:'英雄(2000位)',data:T.map(t=>b2[t]??null),borderColor:'#D85A30',borderDash:[5,4],tension:0.2,borderWidth:2,pointRadius:0,spanGaps:true},
+    {label:'10万位',data:T.map(t=>b1[t]??null),borderColor:'#1D9E75',borderDash:[5,4],tension:0.2,borderWidth:2,pointRadius:0,spanGaps:true}
+  ]);
+  mkChart('#kSpdH','line',Lx,[
+    {label:d.name,data:T.map(t=>psp[t]??null),borderColor:'#378ADD',tension:0.2,borderWidth:2,pointRadius:2,spanGaps:true},
+    {label:'英雄(2000位)',data:T.map(t=>b2s[t]??null),borderColor:'#D85A30',borderDash:[5,4],tension:0.2,borderWidth:1.5,pointRadius:0,spanGaps:true},
+    {label:'10万位',data:T.map(t=>b1s[t]??null),borderColor:'#1D9E75',borderDash:[5,4],tension:0.2,borderWidth:1.5,pointRadius:0,spanGaps:true}
+  ]);
 }
 init();
 </script>

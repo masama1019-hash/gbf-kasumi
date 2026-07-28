@@ -24,6 +24,9 @@
   .metric .s { font-size:11px; color:var(--mut); }
   select,input,button { font-size:14px; padding:8px 10px; border:1px solid #d5dae0; border-radius:8px; background:#fff; }
   button.primary { background:var(--blue); color:#fff; border:none; cursor:pointer; }
+  .minitabs { display:flex; gap:6px; margin-bottom:10px; }
+  button.minitab { padding:6px 14px; font-size:13px; color:var(--mut); cursor:pointer; }
+  button.minitab.on { background:var(--blue); color:#fff; border-color:var(--blue); font-weight:600; }
   .chartbox { position:relative; height:240px; }
   h2 { font-size:14px; color:var(--mut); font-weight:600; margin-bottom:8px; }
   table { width:100%; border-collapse:collapse; font-size:13px; }
@@ -345,19 +348,98 @@ async function loadScout(){
   const wr=d.winrate!=null?`<span class="badge" style="background:${d.winrate>=55?'#e1f5ee':d.winrate>=45?'#faeeda':'#fcebeb'};color:${d.winrate>=55?'#0F6E56':d.winrate>=45?'#854F0B':'#A32D2D'}">霞桜団 勝率目安 ${d.winrate}%</span>`:'';
   let evRows=d.events.map(e=>{
     const ds=Object.entries(e.daily).map(([do_,v])=>`${['','予1','予2','IB','本1','本2','本3','本4'][do_]}:${f1(v)}`).join(' / ');
-    return `<tr><td>${e.raid}回</td><td style="text-align:left;font-size:12px">${ds}</td><td>${f1(e.total)}億</td><td>${e.final_rank}位</td></tr>`;}).join('');
+    return `<tr><td>${e.raid}回</td><td style="text-align:left;font-size:12px">${ds}</td><td>${f1(e.total)}億</td><td>${e.final_rank}位</td><td style="color:var(--mut)">${f1(e.ours_total)}</td><td style="color:var(--mut)">${e.ours_rank?e.ours_rank+'位':'—'}</td></tr>`;}).join('');
   let cmpRows=d.compare.map(c=>{
     const cls=c.ours!=null&&c.opp!=null?(c.ours>=c.opp?'good':'bad'):'';
     return `<tr><td>${c.label}</td><td>${f1(c.ours)}</td><td>${f1(c.opp)}</td><td class="${cls}">${c.ours!=null&&c.opp!=null?((c.ours-c.opp>0?'+':'')+(c.ours-c.opp).toFixed(1)):'—'}</td></tr>`;}).join('');
+  // 直近イベントと勝敗カウント
+  const ev=[...d.events].sort((a,b)=>a.raid-b.raid);      // 古い順
+  const last=d.events[0]||{};
+  const wins=ev.filter(e=>e.ours_total!=null&&e.ours_total>e.total).length;
+  const cmpN=ev.filter(e=>e.ours_total!=null).length;
+  const avgDiff=(d.ours_avg!=null&&d.past_avg!=null)?(d.ours_avg-d.past_avg):null;
+  const wcls=d.winrate>=55?'good':(d.winrate>=45?'':'bad');
+  const P=d.prev_day;
+  const cards=`<div class="metrics">
+    ${P?`<div class="metric" style="outline:2px solid var(--blue);outline-offset:-2px"><div class="l">前日貢献度（${P.label}）— マッチング基準</div><div class="v ${P.diff!=null?(P.diff>=0?'good':'bad'):''}">${P.diff!=null?(P.diff>0?'+':'')+f1(P.diff):'—'}<span style="font-size:12px">億</span></div><div class="s">霞桜団 ${f1(P.ours)} / ${d.name} ${f1(P.opp)}</div></div>`:''}
+    <div class="metric"><div class="l">${d.name} 直近総計</div><div class="v">${f1(last.total)}<span style="font-size:12px">億</span></div><div class="s">第${last.raid}回 ${last.final_rank?last.final_rank+'位':''}</div></div>
+    <div class="metric"><div class="l">相手 本戦日毎平均</div><div class="v">${f1(d.past_avg)}<span style="font-size:12px">億</span></div><div class="s">過去3回</div></div>
+    <div class="metric"><div class="l">霞桜団 本戦日毎平均</div><div class="v ${avgDiff!=null?(avgDiff>=0?'good':'bad'):''}">${f1(d.ours_avg)}<span style="font-size:12px">億</span></div><div class="s">${avgDiff!=null?(avgDiff>=0?'+':'')+f1(avgDiff)+'億 差':'同期間'}</div></div>
+    ${d.winrate!=null?`<div class="metric"><div class="l">勝率目安</div><div class="v ${wcls}">${d.winrate}%</div><div class="s">${cmpN?`過去${cmpN}回中 霞桜団が上回り ${wins}回`:''}</div></div>`:''}
+  </div>`;
+  // 過去3戦の本戦比較テーブル
+  const p3=d.events.slice(0,3);
+  const p3rows=p3.map(e=>{
+    const df=(e.ours_honsen!=null&&e.honsen!=null)?e.ours_honsen-e.honsen:null;
+    const days=[4,5,6,7].map(k=>e.honsen_days&&e.honsen_days[k]!=null?f1(e.honsen_days[k]):'—').join(' / ');
+    return `<tr><td>第${e.raid}回</td><td>${f1(e.ours_honsen)}</td><td style="color:var(--mut)">${e.ours_rank?e.ours_rank+'位':'—'}</td><td>${f1(e.honsen)}</td><td style="color:var(--mut)">${e.final_rank?e.final_rank+'位':'—'}</td><td class="${df!=null?(df>=0?'good':'bad'):''}">${df!=null?(df>0?'+':'')+f1(df):'—'}</td><td style="text-align:left;font-size:12px;color:var(--mut)">${days}</td></tr>`;}).join('');
+  const p3wins=p3.filter(e=>e.ours_honsen!=null&&e.honsen!=null&&e.ours_honsen>e.honsen).length;
   $('#scoutBody').innerHTML=`
     <div class="card">
       <div class="row" style="justify-content:space-between">
         <div><b style="font-size:16px">${d.name}</b> <a href="${d.url}" target="_blank" style="font-size:12px">団ページ↗</a></div>${wr}
       </div>
-      <div style="font-size:13px;color:var(--mut);margin-top:6px">過去3回 本戦日毎平均: <b>${d.past_avg??'—'}億</b>（霞桜団 ${d.ours_avg??'—'}億）</div>
     </div>
-    <div class="card"><h2>過去イベント実績</h2><table><tr><th>回</th><th style="text-align:left">日別(億)</th><th>総計</th><th>最終順位</th></tr>${evRows}</table></div>
-    <div class="card"><h2>今回の日別比較（霞桜団 vs 相手）</h2><table><tr><th>日程</th><th>霞桜団</th><th>相手</th><th>差</th></tr>${cmpRows}</table></div>`;
+    ${cards}
+    <div class="card"><h2>過去3戦の本戦比較（霞桜団 ${p3wins}勝 / ${p3.length}戦）</h2><div style="overflow-x:auto"><table>
+      <tr><th>回</th><th>霞桜団 本戦</th><th>順位</th><th>${d.name} 本戦</th><th>順位</th><th>差</th><th style="text-align:left">相手の本戦1〜4</th></tr>${p3rows}</table></div></div>
+    <div class="card"><h2>本戦貢献度の推移（青=霞桜団 / 赤=${d.name}）</h2><div class="chartbox"><canvas id="scTot"></canvas></div></div>
+    <div class="card"><h2>最終順位の推移（上ほど上位）</h2><div class="chartbox" style="height:200px"><canvas id="scRank"></canvas></div></div>
+    <div class="card"><h2>本戦の時速（青=霞桜団 / 赤=${d.name}）</h2><div id="scSpdBox"><div class="load">時速データ取得中…(20秒ほど)</div></div></div>
+    ${d.compare.length?`<div class="card"><h2>今回の日別比較（青=霞桜団 / 赤=${d.name}）</h2><div class="chartbox"><canvas id="scCmp"></canvas></div></div>`:''}
+    <div class="card"><h2>今回の日別比較（数値・億）</h2><div style="overflow-x:auto"><table><tr><th>日程</th><th>霞桜団</th><th>${d.name}</th><th>差</th></tr>${cmpRows}</table></div></div>
+    <div class="card"><h2>過去イベント実績（総計・予選含む）</h2><div style="overflow-x:auto"><table><tr><th>回</th><th style="text-align:left">相手の日別(億)</th><th>相手 総計</th><th>相手 順位</th><th>霞桜団 総計</th><th>霞桜団 順位</th></tr>${evRows}</table></div></div>`;
+  if(d.compare.length){
+    mkChart('#scCmp','bar',d.compare.map(c=>c.label),[
+      {label:'霞桜団',data:d.compare.map(c=>c.ours),backgroundColor:'#378ADD',borderRadius:3},
+      {label:d.name,data:d.compare.map(c=>c.opp),backgroundColor:'#D85A30',borderRadius:3}
+    ]);
+  }
+  mkChart('#scTot','bar',ev.map(e=>e.raid+'回'),[
+    {label:'霞桜団',data:ev.map(e=>e.ours_honsen),backgroundColor:'#378ADD',borderRadius:3},
+    {label:d.name,data:ev.map(e=>e.honsen),backgroundColor:'#D85A30',borderRadius:3}
+  ]);
+  mkChart('#scRank','line',ev.map(e=>e.raid+'回'),[
+    {label:'霞桜団',data:ev.map(e=>e.ours_rank),borderColor:'#378ADD',backgroundColor:'#378ADD',tension:0.2,borderWidth:2.5,pointRadius:3,spanGaps:true},
+    {label:d.name,data:ev.map(e=>e.final_rank),borderColor:'#D85A30',backgroundColor:'#D85A30',tension:0.2,borderWidth:2.5,pointRadius:3,spanGaps:true}
+  ],{scales:{x:{grid:{display:false},ticks:{font:{size:10}}},y:{reverse:true,ticks:{font:{size:10},callback:v=>v+'位'}}}});
+  loadScoutSpeed(d.gid, d.name);
+}
+async function loadScoutSpeed(gid,oppName){
+  const box=$('#scSpdBox'); if(!box) return;
+  let s;
+  try{ s=await (await fetch('/api/scout_speed?gid='+gid+'&raid='+$('#raidSel').value)).json(); }
+  catch(e){ box.innerHTML='<div style="font-size:12px;color:var(--mut)">時速データの取得に時間がかかり切断されました</div>'; return; }
+  if(!$('#scSpdBox')) return;                       // 別の検索に切り替わっていたら中断
+  if(s.error||!s.days||!s.days.length){ box.innerHTML=`<div style="font-size:12px;color:var(--mut)">${s.error||'この回の時刻毎データはgbfdataに未収録です'}</div>`; return; }
+  const L=s.days.map(x=>x.label);
+  const om=s.days.map(x=>x.ours_max), oa=s.days.map(x=>x.ours_avg);
+  const pm=s.days.map(x=>x.opp_max), pa=s.days.map(x=>x.opp_avg);
+  const cell=(a,b)=>`<td class="${(a!=null&&b!=null)?(a>=b?'good':'bad'):''}">${(a!=null&&b!=null)?((a-b>0?'+':'')+f1(a-b)):'—'}</td>`;
+  const rowsMax=s.days.map(x=>`<tr><td>${x.label}</td><td>${f1(x.ours_max)}</td><td>${f1(x.opp_max)}</td>${cell(x.ours_max,x.opp_max)}</tr>`).join('');
+  const rowsAvg=s.days.map(x=>`<tr><td>${x.label}</td><td>${f1(x.ours_avg)}</td><td>${f1(x.opp_avg)}</td>${cell(x.ours_avg,x.opp_avg)}</tr>`).join('');
+  box.innerHTML=`
+    <div class="minitabs">
+      <button class="minitab on" data-spd="max" onclick="scoutSpeedTab('max')">最高時速</button>
+      <button class="minitab" data-spd="avg" onclick="scoutSpeedTab('avg')">平均時速</button>
+    </div>
+    <div class="chartbox"><canvas id="scSpd"></canvas></div>
+    <div id="scSpdTable" style="overflow-x:auto;margin-top:10px"></div>`;
+  SPD={L, om, oa, pm, pa, oppName,
+       tblMax:`<table><tr><th>日程</th><th>霞桜団 最高時速</th><th>${oppName} 最高時速</th><th>最高時速差</th></tr>${rowsMax}</table>`,
+       tblAvg:`<table><tr><th>日程</th><th>霞桜団 平均時速</th><th>${oppName} 平均時速</th><th>平均時速差</th></tr>${rowsAvg}</table>`};
+  scoutSpeedTab('max');
+}
+let SPD=null;
+function scoutSpeedTab(mode){
+  if(!SPD) return;
+  document.querySelectorAll('.minitab').forEach(b=>b.classList.toggle('on', b.dataset.spd===mode));
+  const isMax=mode==='max';
+  $('#scSpdTable').innerHTML=isMax?SPD.tblMax:SPD.tblAvg;
+  mkChart('#scSpd','line',SPD.L,[
+    {label:'霞桜団 '+(isMax?'最高時速':'平均時速'),data:isMax?SPD.om:SPD.oa,borderColor:'#378ADD',backgroundColor:'#378ADD',tension:0.3,borderWidth:2.5,pointRadius:4,spanGaps:true},
+    {label:SPD.oppName+' '+(isMax?'最高時速':'平均時速'),data:isMax?SPD.pm:SPD.pa,borderColor:'#D85A30',backgroundColor:'#D85A30',tension:0.3,borderWidth:2.5,pointRadius:4,spanGaps:true}
+  ]);
 }
 function koranPast3Html(p3,s2,s1,name){
   if(!p3||!p3.labels) return '';

@@ -409,17 +409,29 @@ def api_scout(q):
         return {"error": "履歴が取得できませんでした"}
     gname = gname or rows[0].get("name", f"ID{gid}")
 
+    ours_rows = guild_histories(OURS_GID)
+
     def event_summary(r):
         ev = {x["day_of"]: x for x in rows if x["raid_number"] == r}
         if not ev:
             return None
         last = ev[max(ev)]
-        return {"raid": r,
-                "daily": {do: round(ev[do]["today_point"] / 1e8, 1) for do in sorted(ev)},
-                "total": round(last["point"] / 1e8, 1), "final_rank": last["rank"]}
+        oev = {x["day_of"]: x for x in ours_rows if x["raid_number"] == r}
+        olast = oev[max(oev)] if oev else None
+        daily = {do: round(ev[do]["today_point"] / 1e8, 1) for do in sorted(ev)}
+        odaily = {do: round(oev[do]["today_point"] / 1e8, 1) for do in sorted(oev)}
+        return {"raid": r, "daily": daily,
+                "total": round(last["point"] / 1e8, 1), "final_rank": last["rank"],
+                "ours_total": round(olast["point"] / 1e8, 1) if olast else None,
+                "ours_rank": olast["rank"] if olast else None,
+                # 本戦(day_of 4〜7)のみの貢献度
+                "honsen": round(sum(v for do, v in daily.items() if do >= 4), 1),
+                "ours_honsen": round(sum(v for do, v in odaily.items() if do >= 4), 1) if odaily else None,
+                "honsen_days": {do: daily.get(do) for do in range(4, 8) if do in daily},
+                "ours_honsen_days": {do: odaily.get(do) for do in range(4, 8) if do in odaily}}
 
     raids = sorted({x["raid_number"] for x in rows}, reverse=True)
-    events = [e for e in (event_summary(r) for r in raids[:4]) if e]
+    events = [e for e in (event_summary(r) for r in raids[:6]) if e]
 
     # 過去3回(現開催除く) 本戦日毎平均
     past = [e for e in events if e["raid"] != raid][:3]
@@ -427,7 +439,6 @@ def api_scout(q):
     past_avg = round(sum(pv) / len(pv), 1) if pv else None
 
     # 自団との比較
-    ours_rows = guild_histories(OURS_GID)
     ours_ev = {x["day_of"]: x for x in ours_rows if x["raid_number"] == raid}
     opp_ev = {x["day_of"]: x for x in rows if x["raid_number"] == raid}
     compare = []
@@ -445,9 +456,68 @@ def api_scout(q):
         ratio = ours_avg / past_avg
         winrate = max(5, min(95, round(50 + (ratio - 1) * 80)))
 
+    # 本戦中なら「前日」の両団貢献度(マッチング基準の日)
+    prev_day = None
+    if 4 <= cur_do <= 7:
+        pd = cur_do - 1 if cur_do > 4 else None      # 本戦2日目以降は前日=本戦の前日
+        if pd and (pd in ours_ev or pd in opp_ev):
+            o = round(ours_ev[pd]["today_point"] / 1e8, 1) if pd in ours_ev else None
+            p = round(opp_ev[pd]["today_point"] / 1e8, 1) if pd in opp_ev else None
+            prev_day = {"label": lbl.get(pd, str(pd)), "ours": o, "opp": p,
+                        "diff": round(o - p, 1) if (o is not None and p is not None) else None}
+        elif cur_do == 4:                             # 本戦1日目の前日相当=予選合計
+            o = round(sum(ours_ev[d]["today_point"] for d in (1, 2) if d in ours_ev) / 1e8, 1)
+            p = round(sum(opp_ev[d]["today_point"] for d in (1, 2) if d in opp_ev) / 1e8, 1) if opp_ev else None
+            prev_day = {"label": "予選(計)", "ours": o, "opp": p,
+                        "diff": round(o - p, 1) if p is not None else None}
+
     return {"name": gname, "gid": gid, "url": f"https://game.granbluefantasy.jp/#guild/detail/{gid}",
             "events": events, "past_avg": past_avg, "ours_avg": ours_avg,
-            "winrate": winrate, "compare": compare}
+            "winrate": winrate, "compare": compare, "cur_do": cur_do, "prev_day": prev_day,
+            "ours_name": OURS_NAME}
+
+
+def api_scout_speed(q):
+    """サーチの時速分析: 本戦各日の 最高時速/平均時速 を両団ぶん(重いので別API)"""
+    raid = raid_arg(q) or meta_for()["raid"]
+    v = (q.get("gid", [""])[0] or "").strip()
+    if not v.isdigit():
+        return {"error": "団IDが必要です"}
+    gid = int(v)
+    m = meta_for(raid)
+    days = [(s["day_of"], s["day"]) for s in sorted(m["schedules"], key=lambda s: s["day_of"])
+            if s["day_of"] >= 4]
+    ours_hist, opp_hist = guild_histories(OURS_GID), guild_histories(gid)
+
+    def hint_of(rows, do, default):
+        ev = {x["day_of"]: x for x in rows if x["raid_number"] == raid}
+        return (ev.get(do) or ev.get(do - 1) or {}).get("rank") or default
+
+    def stats(item):
+        do, date, rows_, g, dflt = item
+        ser = hourly_series(raid, date, day_base(rows_, raid, date), g, hint_of(rows_, do, dflt))
+        sp = _speeds(ser)
+        # 08:00は日始(前日終了からの差分でない)ので除外
+        vals = [v for t, v in sp.items() if t != "08:00" and v is not None and v > 0]
+        if not vals:
+            return None
+        peak = max(sp.items(), key=lambda kv: (kv[1] if kv[0] != "08:00" and kv[1] is not None else -1))
+        return {"max": round(max(vals), 1), "avg": round(sum(vals) / len(vals), 1), "peak_time": peak[0]}
+
+    jobs = []
+    for do, date in days:
+        jobs.append((do, date, ours_hist, OURS_GID, 250))
+        jobs.append((do, date, opp_hist, gid, 400))
+    with ThreadPoolExecutor(max_workers=8) as ex:
+        res = list(ex.map(stats, jobs))
+    out = []
+    for i, (do, date) in enumerate(days):
+        o, p = res[i * 2], res[i * 2 + 1]
+        if o or p:
+            out.append({"label": f"本戦{do - 3}", "day_of": do,
+                        "ours_max": (o or {}).get("max"), "ours_avg": (o or {}).get("avg"),
+                        "opp_max": (p or {}).get("max"), "opp_avg": (p or {}).get("avg")})
+    return {"raid": raid, "days": out, "ours_name": OURS_NAME}
 
 
 def _snapshot_times(raid, date):
@@ -780,7 +850,8 @@ def api_koran(q):
 
 
 ROUTES = {"/api/config": api_config, "/api/live": api_live,
-          "/api/scout": api_scout, "/api/yosen": api_yosen, "/api/koran": api_koran}
+          "/api/scout": api_scout, "/api/yosen": api_yosen, "/api/koran": api_koran,
+          "/api/scout_speed": api_scout_speed}
 
 
 class Handler(BaseHTTPRequestHandler):

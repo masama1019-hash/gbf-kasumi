@@ -177,6 +177,44 @@ def api_config(q):
             "raids": raids, "schedules": m["schedules"]}
 
 
+def ratio_winprob(r, k=3.5):
+    """貢献度比から勝率(0〜1)。比の3.5乗のロジスティックで、格差が大きいほど極端に振る。
+    r=1→50%, 1.2→65%, 1.5→81%, 0.8→31%, 0.5→8%, 0.13(団1位級)→1%未満"""
+    if not r or r <= 0:
+        return 0.01
+    try:
+        p = r ** k
+    except OverflowError:
+        return 0.99
+    return min(0.99, max(0.01, p / (1 + p)))
+
+
+def battle_advice(cur_do, win):
+    """本戦の日と勝敗見込みから推奨アクション。
+    Day1/2は翌日マッチングが前日貢献度で決まるため、決着後は抑えるほど有利。"""
+    if not (4 <= cur_do <= 7):
+        return None
+    if cur_do in (4, 5):
+        nxt = f"本戦{cur_do - 2}日目"
+        if win >= 85:
+            return {"label": "抑え推奨", "tone": "good",
+                    "text": f"勝勢が固まりました。ここから流せば{nxt}のマッチングが楽になり、グラッジ・半汁・体力も温存できます"}
+        if win <= 15:
+            return {"label": "撤退推奨", "tone": "good",
+                    "text": f"逆転は困難。早めに切り上げれば{nxt}のマッチングが有利になり、戦力も残せます"}
+        return {"label": "継続", "tone": "mid", "text": "接戦。取れる試合なので押し切りましょう"}
+    if cur_do == 6:
+        if win >= 85:
+            return {"label": "Day4に温存", "tone": "good",
+                    "text": "勝ちが見えました。余力は本戦4日目に回すと最終日の勝率が上がります"}
+        if win <= 15:
+            return {"label": "撤退推奨", "tone": "good",
+                    "text": "逆転困難。本戦4日目に戦力を残しましょう"}
+        return {"label": "継続", "tone": "mid", "text": "接戦。ここは取りに行く場面"}
+    return {"label": "最終日・全力", "tone": "mid",
+            "text": "最終日。翌日を考える必要はないので、出せる分は出し切りましょう"}
+
+
 def _speeds(series):
     sp, prev = {}, 0
     for t in HOURS:
@@ -343,16 +381,18 @@ def api_live(q):
         oa, pa = honsen_avg(ours_hist), honsen_avg(opp_hist)
         prior = 0.5
         if oa and pa:
-            prior = min(0.95, max(0.05, 0.5 + (oa / pa - 1) * 0.8))
+            prior = ratio_winprob(oa / pa)
 
         # 当日予測の確率化(残り時間が多いほど不確実性大) → 経過に応じて事前確率とブレンド
         sigma = max(25.0, (fo + fp) / 2 * 0.06 + (fo + fp) / 2 * 0.30 * remain / len(HOURS))
         p_proj = 1 / (1 + math.exp(-(fo - fp) / sigma))
         w = elapsed / len(HOURS)
         win = round(100 * ((1 - w) * prior + w * p_proj))
-        forecast = {"win": max(2, min(98, win)), "proj_ours": round(fo, 1), "proj_opp": round(fp, 1),
+        win = max(1, min(99, win))
+        forecast = {"win": win, "proj_ours": round(fo, 1), "proj_opp": round(fp, 1),
                     "policy": policy, "prior": round(prior * 100),
-                    "basis": "前日推移ベース" if prev_day else "平均時速ベース"}
+                    "basis": "前日推移ベース" if prev_day else "平均時速ベース",
+                    "advice": battle_advice(cur_do, win)}
 
     # 過去開催の総合順位推移(最終day_ofのrank)
     def final_ranks(rows):
@@ -453,8 +493,7 @@ def api_scout(q):
     ours_avg = round(sum(ours_pv) / len(ours_pv), 1) if ours_pv else None
     winrate = None
     if past_avg and ours_avg:
-        ratio = ours_avg / past_avg
-        winrate = max(5, min(95, round(50 + (ratio - 1) * 80)))
+        winrate = round(100 * ratio_winprob(ours_avg / past_avg))
 
     # 本戦中なら「前日」の両団貢献度(マッチング基準の日)
     prev_day = None

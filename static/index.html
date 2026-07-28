@@ -346,9 +346,18 @@ async function loadScout(){
     return;
   }
   const wr=d.winrate!=null?`<span class="badge" style="background:${d.winrate>=55?'#e1f5ee':d.winrate>=45?'#faeeda':'#fcebeb'};color:${d.winrate>=55?'#0F6E56':d.winrate>=45?'#854F0B':'#A32D2D'}">霞桜団 勝率目安 ${d.winrate}%</span>`:'';
+  // 大きい数値はカンマ区切りで読みやすく
+  const fN=x=>(x!=null&&x!=='')?(+x).toLocaleString('ja-JP',{minimumFractionDigits:1,maximumFractionDigits:1}):'—';
   let evRows=d.events.map(e=>{
-    const ds=Object.entries(e.daily).map(([do_,v])=>`${['','予1','予2','IB','本1','本2','本3','本4'][do_]}:${f1(v)}`).join(' / ');
-    return `<tr><td>${e.raid}回</td><td style="text-align:left;font-size:12px">${ds}</td><td>${f1(e.total)}億</td><td>${e.final_rank}位</td><td style="color:var(--mut)">${f1(e.ours_total)}</td><td style="color:var(--mut)">${e.ours_rank?e.ours_rank+'位':'—'}</td></tr>`;}).join('');
+    const dd=e.daily||{};
+    const yosen=(dd[1]||0)+(dd[2]||0);
+    const hd=[4,5,6,7].map(k=>dd[k]!=null?dd[k]:null);
+    const mx=Math.max(...hd.filter(v=>v!=null).concat([-1]));
+    const diff=(e.ours_honsen!=null&&e.honsen!=null)?e.ours_honsen-e.honsen:null;
+    return `<tr><td>${e.raid}回</td><td style="color:var(--mut)">${fN(yosen)}</td>`
+      +hd.map(v=>`<td${(v!=null&&v===mx)?' style="font-weight:700;color:var(--red)"':''}>${fN(v)}</td>`).join('')
+      +`<td style="font-weight:600">${fN(e.honsen)}</td><td style="color:var(--mut)">${fN(e.total)}</td><td style="color:var(--mut)">${e.final_rank?e.final_rank+'位':'—'}</td>`
+      +`<td class="${diff!=null?(diff>=0?'good':'bad'):''}">${diff!=null?(diff>0?'+':'')+fN(diff):'—'}</td></tr>`;}).join('');
   let cmpRows=d.compare.map(c=>{
     const cls=c.ours!=null&&c.opp!=null?(c.ours>=c.opp?'good':'bad'):'';
     return `<tr><td>${c.label}</td><td>${f1(c.ours)}</td><td>${f1(c.opp)}</td><td class="${cls}">${c.ours!=null&&c.opp!=null?((c.ours-c.opp>0?'+':'')+(c.ours-c.opp).toFixed(1)):'—'}</td></tr>`;}).join('');
@@ -371,8 +380,8 @@ async function loadScout(){
   const p3=d.events.slice(0,3);
   const p3rows=p3.map(e=>{
     const df=(e.ours_honsen!=null&&e.honsen!=null)?e.ours_honsen-e.honsen:null;
-    const days=[4,5,6,7].map(k=>e.honsen_days&&e.honsen_days[k]!=null?f1(e.honsen_days[k]):'—').join(' / ');
-    return `<tr><td>第${e.raid}回</td><td>${f1(e.ours_honsen)}</td><td style="color:var(--mut)">${e.ours_rank?e.ours_rank+'位':'—'}</td><td>${f1(e.honsen)}</td><td style="color:var(--mut)">${e.final_rank?e.final_rank+'位':'—'}</td><td class="${df!=null?(df>=0?'good':'bad'):''}">${df!=null?(df>0?'+':'')+f1(df):'—'}</td><td style="text-align:left;font-size:12px;color:var(--mut)">${days}</td></tr>`;}).join('');
+    const win=df!=null?(df>=0?'<span class="badge" style="background:#e1f5ee;color:#0F6E56">勝</span>':'<span class="badge" style="background:#fcebeb;color:#A32D2D">負</span>'):'';
+    return `<tr><td>第${e.raid}回</td><td>${f1(e.ours_honsen)}</td><td style="color:var(--mut)">${e.ours_rank?e.ours_rank+'位':'—'}</td><td>${f1(e.honsen)}</td><td style="color:var(--mut)">${e.final_rank?e.final_rank+'位':'—'}</td><td class="${df!=null?(df>=0?'good':'bad'):''}">${df!=null?(df>0?'+':'')+f1(df):'—'}</td><td>${win}</td></tr>`;}).join('');
   const p3wins=p3.filter(e=>e.ours_honsen!=null&&e.honsen!=null&&e.ours_honsen>e.honsen).length;
   $('#scoutBody').innerHTML=`
     <div class="card">
@@ -382,13 +391,15 @@ async function loadScout(){
     </div>
     ${cards}
     <div class="card"><h2>過去3戦の本戦比較（霞桜団 ${p3wins}勝 / ${p3.length}戦）</h2><div style="overflow-x:auto"><table>
-      <tr><th>回</th><th>霞桜団 本戦</th><th>順位</th><th>${d.name} 本戦</th><th>順位</th><th>差</th><th style="text-align:left">相手の本戦1〜4</th></tr>${p3rows}</table></div></div>
+      <tr><th>回</th><th>霞桜団 本戦</th><th>順位</th><th>${d.name} 本戦</th><th>順位</th><th>差</th><th>判定</th></tr>${p3rows}</table></div></div>
     <div class="card"><h2>本戦貢献度の推移（青=霞桜団 / 赤=${d.name}）</h2><div class="chartbox"><canvas id="scTot"></canvas></div></div>
     <div class="card"><h2>最終順位の推移（上ほど上位）</h2><div class="chartbox" style="height:200px"><canvas id="scRank"></canvas></div></div>
     <div class="card"><h2>本戦の時速（青=霞桜団 / 赤=${d.name}）</h2><div id="scSpdBox"><div class="load">時速データ取得中…(20秒ほど)</div></div></div>
     ${d.compare.length?`<div class="card"><h2>今回の日別比較（青=霞桜団 / 赤=${d.name}）</h2><div class="chartbox"><canvas id="scCmp"></canvas></div></div>`:''}
     <div class="card"><h2>今回の日別比較（数値・億）</h2><div style="overflow-x:auto"><table><tr><th>日程</th><th>霞桜団</th><th>${d.name}</th><th>差</th></tr>${cmpRows}</table></div></div>
-    <div class="card"><h2>過去イベント実績（総計・予選含む）</h2><div style="overflow-x:auto"><table><tr><th>回</th><th style="text-align:left">相手の日別(億)</th><th>相手 総計</th><th>相手 順位</th><th>霞桜団 総計</th><th>霞桜団 順位</th></tr>${evRows}</table></div></div>`;
+    <div class="card"><h2>${d.name} の過去実績（億）</h2><div style="overflow-x:auto"><table>
+      <tr><th>回</th><th>予選</th><th>本1</th><th>本2</th><th>本3</th><th>本4</th><th>本戦計</th><th>総計</th><th>順位</th><th>霞桜団との差</th></tr>${evRows}</table></div>
+      <div style="font-size:11px;color:var(--mut);margin-top:6px">赤字=その回で最も稼いだ本戦日 ／ 差=霞桜団の本戦計 − 相手の本戦計</div></div>`;
   if(d.compare.length){
     mkChart('#scCmp','bar',d.compare.map(c=>c.label),[
       {label:'霞桜団',data:d.compare.map(c=>c.ours),backgroundColor:'#378ADD',borderRadius:3},

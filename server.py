@@ -612,10 +612,24 @@ def api_scout(q):
             prev_day = {"label": "予選(計)", "ours": o, "opp": p,
                         "diff": round(o - p, 1) if p is not None else None}
 
+    # 直近3開催の 予選→本戦1〜4 の総合順位推移(ライブと同じ粒度)
+    RK_DAYS = [(2, "予選"), (4, "本1"), (5, "本2"), (6, "本3"), (7, "本4")]
+    rk3 = sorted({x["raid_number"] for x in ours_rows} | {x["raid_number"] for x in rows},
+                 reverse=True)[:3][::-1]
+    o_at = {(x["raid_number"], x["day_of"]): x["rank"] for x in ours_rows}
+    p_at = {(x["raid_number"], x["day_of"]): x["rank"] for x in rows}
+    rank_history = []
+    for rn in rk3:
+        for do, dl in RK_DAYS:
+            o, p = o_at.get((rn, do)), p_at.get((rn, do))
+            if o is None and p is None:
+                continue
+            rank_history.append({"label": f"{rn}回{dl}", "ours": o, "opp": p})
+
     return {"name": gname, "gid": gid, "url": f"https://game.granbluefantasy.jp/#guild/detail/{gid}",
             "events": events, "past_avg": past_avg, "ours_avg": ours_avg,
             "winrate": winrate, "compare": compare, "cur_do": cur_do, "prev_day": prev_day,
-            "ours_name": OURS_NAME}
+            "ours_name": OURS_NAME, "rank_history": rank_history}
 
 
 def api_scout_speed(q):
@@ -658,7 +672,38 @@ def api_scout_speed(q):
             out.append({"label": f"本戦{do - 3}", "day_of": do,
                         "ours_max": (o or {}).get("max"), "ours_avg": (o or {}).get("avg"),
                         "opp_max": (p or {}).get("max"), "opp_avg": (p or {}).get("avg")})
-    return {"raid": raid, "days": out, "ours_name": OURS_NAME}
+
+    # 前日(マッチング基準の日)の時刻毎比較。本戦1日目が対象なら前日=予選なので日別で返す
+    sched = {s["day_of"]: s["day"] for s in m["schedules"]}
+    cur_do = max((s["day_of"] for s in m["schedules"] if s["day"] in
+                  {x["day"] for x in ours_hist if x["raid_number"] == raid}), default=7)
+    prev = None
+    pdo = cur_do - 1
+    if 4 <= pdo <= 7 and sched.get(pdo):
+        pdate = sched[pdo]
+
+        def ser(rows_, g, dflt):
+            return hourly_series(raid, pdate, day_base(rows_, raid, pdate), g, hint_of(rows_, pdo, dflt))
+        with ThreadPoolExecutor(max_workers=2) as ex:
+            fo = ex.submit(ser, ours_hist, OURS_GID, 250)
+            fp = ex.submit(ser, opp_hist, gid, 400)
+            o_ser, p_ser = fo.result(), fp.result()
+        prev = {"mode": "hourly", "label": f"本戦{pdo - 3}日目", "times": HOURS,
+                "ours": {"cum": o_ser, "speed": _speeds(o_ser)},
+                "opp": {"cum": p_ser, "speed": _speeds(p_ser)}}
+    elif pdo == 3 or cur_do == 4:
+        # 前日=予選: 予選1日目/2日目の日別で比較
+        oe = {x["day_of"]: x for x in ours_hist if x["raid_number"] == raid}
+        pe = {x["day_of"]: x for x in opp_hist if x["raid_number"] == raid}
+        rows_ = []
+        for do, dl in ((1, "予選1日目"), (2, "予選2日目"), (3, "インターバル")):
+            if do in oe or do in pe:
+                rows_.append({"label": dl,
+                              "ours": round(oe[do]["today_point"] / 1e8, 1) if do in oe else None,
+                              "opp": round(pe[do]["today_point"] / 1e8, 1) if do in pe else None})
+        if rows_:
+            prev = {"mode": "daily", "label": "予選", "rows": rows_}
+    return {"raid": raid, "days": out, "ours_name": OURS_NAME, "prev": prev}
 
 
 def _snapshot_times(raid, date):

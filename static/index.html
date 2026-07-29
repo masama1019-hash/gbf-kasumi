@@ -356,9 +356,9 @@ async function loadLive(){
   $('#liveBody').innerHTML=`
     ${lastIdx<0?'<div class="card" style="color:var(--mut)">この回の毎時データはgbfdataに未収録のため、グラフ・リードは表示できません（参考情報の日別実績は有効です）</div>':''}
     <div class="metrics">
-      <div class="metric ours"><div class="l">${d.ours.name} 本日Day分</div><div class="v">${lo?.toFixed(1)??'—'}<span style="font-size:12px">億</span></div><div class="s">前日終了比 / ${H[lastIdx]??''}時時点</div></div>
-      <div class="metric opp"><div class="l">${oppNameHtml} 本日Day分</div><div class="v">${lp?.toFixed(1)??'—'}<span style="font-size:12px">億</span></div><div class="s">前日終了比</div></div>
-      <div class="metric"><div class="l">本日リード(Day分の差)</div><div class="v ${lead>=0?'good':'bad'}">${lead!=null?(lead>0?'+':'')+lead.toFixed(1):'—'}<span style="font-size:12px">億</span></div><div class="s">${lead!=null?(lead>=0?'勝ち越し中':'ビハインド'):''}${prevLeadTxt?' / '+prevLeadTxt:''}</div></div>
+      <div class="metric ours"><div class="l">${d.ours.name} 本日</div><div class="v">${lo?.toFixed(1)??'—'}<span style="font-size:12px">億</span></div><div class="s">前日終了比 / ${H[lastIdx]??''}時時点</div></div>
+      <div class="metric opp"><div class="l">${oppNameHtml} 本日</div><div class="v">${lp?.toFixed(1)??'—'}<span style="font-size:12px">億</span></div><div class="s">前日終了比</div></div>
+      <div class="metric"><div class="l">本日リード</div><div class="v ${lead>=0?'good':'bad'}">${lead!=null?(lead>0?'+':'')+lead.toFixed(1):'—'}<span style="font-size:12px">億</span></div><div class="s">${lead!=null?(lead>=0?'勝ち越し中':'ビハインド'):''}${prevLeadTxt?' / '+prevLeadTxt:''}</div></div>
       <div class="metric ours"><div class="l">${d.ours.name} 本日最高時速</div><div class="v bad">${opk.v?.toFixed(1)??'—'}<span style="font-size:12px">億/h</span></div><div class="s">${opk.h?opk.h+'時':''}</div></div>
       <div class="metric opp"><div class="l">${oppName} 本日最高時速</div><div class="v bad">${ppk.v?.toFixed(1)??'—'}<span style="font-size:12px">億/h</span></div><div class="s">${ppk.h?ppk.h+'時':''}</div></div>
       ${judgeCards}

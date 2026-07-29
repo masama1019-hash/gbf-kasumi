@@ -189,30 +189,113 @@ def ratio_winprob(r, k=3.5):
     return min(0.99, max(0.01, p / (1 + p)))
 
 
-def battle_advice(cur_do, win):
-    """本戦の日と勝敗見込みから推奨アクション。
+BANDS = [("朝", 8, 11), ("昼", 12, 16), ("夕", 17, 20), ("夜", 21, 24)]
+
+
+def time_pattern(cum):
+    """時刻毎累積(億)から時間帯配分と型を判定。
+    朝型=朝に集中 / 夜型=夕夜に集中 / 終盤型=夜だけ跳ねる / 持久型=一日中平坦"""
+    sp, prev = {}, 0
+    for t in HOURS:
+        v = cum.get(t)
+        if v is not None:
+            sp[t] = v - prev
+            prev = v
+    if not sp:
+        return None
+    band = {b[0]: 0.0 for b in BANDS}
+    for t, v in sp.items():
+        hh = int(t.split(":")[0])
+        for name, lo, hi in BANDS:
+            if lo <= hh <= hi:
+                band[name] += max(0.0, v)
+                break
+    total = sum(band.values())
+    if total <= 0:
+        return None
+    pct = {k: v / total * 100 for k, v in band.items()}
+    # 4分割なので均等=25%。そこからの偏りで判定する
+    if pct["夜"] >= 32:
+        label, desc = "終盤型", "夜(21〜24時)に一気に伸ばす"
+    elif pct["朝"] >= 33:
+        label, desc = "朝型", "朝(8〜11時)に稼いで先行する"
+    elif pct["夕"] + pct["夜"] >= 52:
+        label, desc = "夜型", "夕方以降に追い上げる"
+    elif max(pct.values()) - min(pct.values()) <= 12:
+        label, desc = "持久型", "時速は控えめだが一日中走り続ける"
+    elif pct["昼"] >= 33:
+        label, desc = "日中型", "日中(12〜16時)に安定して走る"
+    else:
+        label, desc = "標準型", "特定の時間帯に偏りが少ない"
+    return {"label": label, "desc": desc, "total": round(total, 1),
+            "pct": {k: round(v) for k, v in pct.items()},
+            "rest_ratio": {k: round(v / 100, 3) for k, v in pct.items()}}
+
+
+def remaining_share(pat, hk):
+    """パターン上、現時刻hk以降に残っている割合(0〜1)"""
+    if not pat:
+        return None
+    hh = int(hk.split(":")[0])
+    rest = 0.0
+    for name, lo, hi in BANDS:
+        if hi <= hh:
+            continue
+        share = pat["rest_ratio"][name]
+        if lo > hh:
+            rest += share                       # まるごと未消化
+        else:
+            rest += share * (hi - hh) / (hi - lo + 1)   # 帯の途中
+    return round(min(1.0, max(0.0, rest)), 3)
+
+
+def battle_advice(cur_do, win, o_pat=None, p_pat=None, lead=None, hk=None, proj_lead=None):
+    """本戦の日・勝敗見込み・両団の時間帯パターンから推奨アクション。
     Day1/2は翌日マッチングが前日貢献度で決まるため、決着後は抑えるほど有利。"""
     if not (4 <= cur_do <= 7):
         return None
+    # パターンの読み(相手が後半型なら、リードがあっても警戒が要る)
+    note = ""
+    risk = False
+    if p_pat:
+        note = f"相手は{p_pat['label']}（{p_pat['desc']}／朝{p_pat['pct']['朝']}% 昼{p_pat['pct']['昼']}% 夕{p_pat['pct']['夕']}% 夜{p_pat['pct']['夜']}%）。"
+        rest = remaining_share(p_pat, hk) if hk else None
+        if rest is not None and p_pat["label"] in ("夜型", "終盤型") and rest >= 0.25:
+            risk = True
+            note += f"残り時間に相手の約{round(rest*100)}%が控えています。"
+    if o_pat:
+        note += f"自団は{o_pat['label']}。"
+    if proj_lead is not None:
+        note += f"このままの型なら最終差は約{proj_lead:+.0f}億の見込み。"
+
     if cur_do in (4, 5):
         nxt = f"本戦{cur_do - 2}日目"
-        if win >= 85:
+        if win >= 85 and not risk:
             return {"label": "抑え推奨", "tone": "good",
-                    "text": f"勝勢が固まりました。ここから流せば{nxt}のマッチングが楽になり、グラッジ・半汁・体力も温存できます"}
+                    "text": f"{note}勝勢が固まりました。ここから流せば{nxt}のマッチングが楽になり、グラッジ・半汁・体力も温存できます"}
+        if win >= 85 and risk:
+            return {"label": "リード維持", "tone": "mid",
+                    "text": f"{note}数字上は優勢ですが、相手の追い上げ余地が大きい時間帯です。差が詰まらない程度に維持し、決着後に抑えると{nxt}が楽になります"}
         if win <= 15:
             return {"label": "撤退推奨", "tone": "good",
-                    "text": f"逆転は困難。早めに切り上げれば{nxt}のマッチングが有利になり、戦力も残せます"}
-        return {"label": "継続", "tone": "mid", "text": "接戦。取れる試合なので押し切りましょう"}
+                    "text": f"{note}逆転は困難。早めに切り上げれば{nxt}のマッチングが有利になり、戦力も残せます"}
+        return {"label": "継続", "tone": "mid", "text": f"{note}接戦。取れる試合なので押し切りましょう"}
     if cur_do == 6:
-        if win >= 85:
+        if win >= 85 and not risk:
             return {"label": "Day4に温存", "tone": "good",
-                    "text": "勝ちが見えました。余力は本戦4日目に回すと最終日の勝率が上がります"}
+                    "text": f"{note}勝ちが見えました。余力は本戦4日目に回すと最終日の勝率が上がります"}
+        if win >= 85 and risk:
+            return {"label": "リード維持", "tone": "mid",
+                    "text": f"{note}相手の伸びしろが残っています。振り切るまでは維持し、決着後にDay4へ余力を回しましょう"}
         if win <= 15:
             return {"label": "撤退推奨", "tone": "good",
-                    "text": "逆転困難。本戦4日目に戦力を残しましょう"}
-        return {"label": "継続", "tone": "mid", "text": "接戦。ここは取りに行く場面"}
+                    "text": f"{note}逆転困難。本戦4日目に戦力を残しましょう"}
+        return {"label": "継続", "tone": "mid", "text": f"{note}接戦。ここは取りに行く場面"}
+    if win >= 85 and risk:
+        return {"label": "最終日・振り切る", "tone": "mid",
+                "text": f"{note}最終日。相手の追い上げ時間帯が残っているので、差を詰めさせないよう走り切りましょう"}
     return {"label": "最終日・全力", "tone": "mid",
-            "text": "最終日。翌日を考える必要はないので、出せる分は出し切りましょう"}
+            "text": f"{note}最終日。翌日を考える必要はないので、出せる分は出し切りましょう"}
 
 
 def _speeds(series):
@@ -393,10 +476,19 @@ def api_live(q):
         w = elapsed / len(HOURS)
         win = round(100 * ((1 - w) * prior + w * p_proj))
         win = max(1, min(99, win))
+        # 時間帯パターン: 前日の実績があればそれを、無ければ当日の推移から判定
+        o_pat = time_pattern(prev_day["ours"]["cum"]) if prev_day else None
+        p_pat = time_pattern(prev_day["opp"]["cum"]) if prev_day else None
+        if not o_pat:
+            o_pat = time_pattern(ours)
+        if not p_pat:
+            p_pat = time_pattern(opp)
         forecast = {"win": win, "proj_ours": round(fo, 1), "proj_opp": round(fp, 1),
                     "policy": policy, "prior": round(prior * 100),
                     "basis": "前日推移ベース" if prev_day else "平均時速ベース",
-                    "advice": battle_advice(cur_do, win)}
+                    "ours_pattern": o_pat, "opp_pattern": p_pat,
+                    "advice": battle_advice(cur_do, win, o_pat, p_pat,
+                                            round(o_now - p_now, 1), hk, round(fo - fp, 1))}
 
     # 過去開催の総合順位推移(最終day_ofのrank)
     def final_ranks(rows):

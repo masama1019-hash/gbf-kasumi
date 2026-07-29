@@ -163,6 +163,36 @@ function fillKoranDays(){
   (cfg.schedules||[]).slice().sort((a,b)=>a.day_of-b.day_of).forEach(s=>{
     const o=document.createElement('option'); o.value=s.day; o.textContent=`${KORAN_LBL[s.day_of]||s.day_of} (1H)`; sel.appendChild(o);});
 }
+// 団チャット貼り付け用の文章（例: 9時時点でこちら99.8億(40.2億)　相手14.6億(9.5億)　貢献差85.2億(30.7億)）
+function chatLine(t,o,p,os_,ps_,withSpeed){
+  const d=o-p;
+  if(!withSpeed) return `${t}時時点でこちら${f1(o)}億　相手${f1(p)}億　貢献差${f1(d)}億`;
+  return `${t}時時点でこちら${f1(o)}億(${f1(os_)}億)　相手${f1(p)}億(${f1(ps_)}億)　貢献差${f1(d)}億(${f1(os_-ps_)}億)`;
+}
+function chatNoticeHtml(H,oc,pc,os,ps){
+  const lines=[];
+  H.forEach((t,i)=>{ if(oc[i]==null||pc[i]==null) return;
+    lines.push(chatLine(t,oc[i],pc[i],os[i],ps[i], i>0 && os[i]!=null && ps[i]!=null)); });
+  if(!lines.length) return '';
+  CHAT=lines;
+  const latest=lines[lines.length-1];
+  return `<div class="card"><h2>団チャット通知用</h2>
+    <div id="chatLatest" style="background:#f2f6fa;border:1px solid #d5dae0;border-radius:8px;padding:12px;font-size:14px;line-height:1.6;word-break:break-all">${latest}</div>
+    <div class="row" style="margin-top:8px">
+      <button class="primary" onclick="copyChat('latest',this)">最新の1行をコピー</button>
+      <button onclick="copyChat('all',this)" style="cursor:pointer">全時刻をコピー</button>
+      <span id="chatMsg" style="font-size:12px;color:var(--green)"></span>
+    </div>
+    <details style="margin-top:10px"><summary style="font-size:12px;color:var(--mut);cursor:pointer">全時刻の文章を見る（${lines.length}行）</summary>
+      <div style="font-size:13px;line-height:1.9;margin-top:6px;word-break:break-all">${lines.join('<br>')}</div></details></div>`;
+}
+let CHAT=[];
+async function copyChat(mode,btn){
+  const txt=mode==='all'?CHAT.join('\n'):CHAT[CHAT.length-1];
+  try{ await navigator.clipboard.writeText(txt); }
+  catch(e){ const ta=document.createElement('textarea'); ta.value=txt; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove(); }
+  const m=$('#chatMsg'); if(m){ m.textContent='コピーしました'; setTimeout(()=>{m.textContent='';},2000); }
+}
 function paceJudge(ratio){
   if(ratio==null) return null;
   const pct=Math.round(ratio*100);
@@ -256,8 +286,8 @@ async function loadLive(){
     const hkey=d.hours[lastIdx];
     const oj=paceJudge(prev.opp.cum[hkey]?(d.opp.cum[hkey]??null)/prev.opp.cum[hkey]:null);
     const kj=paceJudge(prev.ours.cum[hkey]?(d.ours.cum[hkey]??null)/prev.ours.cum[hkey]:null);
-    if(oj) judgeCards+=`<div class="metric"><div class="l">相手 ${prev.label}同時刻比</div><div class="v" style="font-size:18px">${oj.pct}%</div><div class="s"><span class="badge" style="background:${oj.bg};color:${oj.fg}">${oj.txt}</span></div></div>`;
     if(kj) judgeCards+=`<div class="metric"><div class="l">自団 ${prev.label}同時刻比</div><div class="v" style="font-size:18px">${kj.pct}%</div><div class="s">${kj.txt}</div></div>`;
+    if(oj) judgeCards+=`<div class="metric"><div class="l">相手 ${prev.label}同時刻比</div><div class="v" style="font-size:18px">${oj.pct}%</div><div class="s"><span class="badge" style="background:${oj.bg};color:${oj.fg}">${oj.txt}</span></div></div>`;
   }
   // 相手方針 & 勝率予想
   const fc=d.forecast;
@@ -270,7 +300,7 @@ async function loadLive(){
     judgeCards+=`<div class="metric"><div class="l">本日勝率予想</div><div class="v ${wc}">${fc.win}%</div><div class="s">予測最終 ${fc.proj_ours}億 vs ${fc.proj_opp}億<br>過去戦績${fc.prior}%×${fc.basis}</div></div>`;
     if(fc.advice){
       const at={bad:['#fcebeb','#A32D2D'],mid:['#faeeda','#854F0B'],good:['#e1f5ee','#0F6E56']}[fc.advice.tone]||['#e6f1fb','#185FA5'];
-      judgeCards+=`<div class="metric" style="outline:2px solid ${at[1]};outline-offset:-2px"><div class="l">推奨アクション</div><div class="v" style="font-size:17px"><span class="badge" style="background:${at[0]};color:${at[1]}">${fc.advice.label}</span></div><div class="s"></div></div>`;
+      judgeCards+=`<div class="metric" style="grid-column:1/-1;outline:2px solid ${at[1]};outline-offset:-2px"><div class="l">推奨アクション</div><div class="v" style="font-size:17px"><span class="badge" style="background:${at[0]};color:${at[1]}">${fc.advice.label}</span></div><div class="s" style="line-height:1.5">${fc.advice.text}</div></div>`;
     }
   }
   // 前日同時刻のリード(日次対戦なので前日の同時点と比較できると撤退判断に便利)
@@ -311,13 +341,14 @@ async function loadLive(){
         const df=(o!=null&&p!=null)?o-p:null;
         return `<tr><td>${h}時</td><td>${f1(o)}</td><td style="color:var(--mut)">${f1(os[i])}</td><td>${f1(p)}</td><td style="color:var(--mut)">${f1(ps[i])}</td><td class="${df!=null?(df>=0?'good':'bad'):''}">${df!=null?(df>0?'+':'')+df.toFixed(1):'—'}</td></tr>`;
       }).join('')}</table></div></div>`:''}
-    ${prev?`<div class="card"><h2>${prev.label}日目の推移（数値・億）— 前日</h2><div style="overflow-x:auto"><table>
+    ${prev?`<div class="card"><h2>${prev.label}の推移（数値・億）— 前日</h2><div style="overflow-x:auto"><table>
       <tr><th>時刻</th><th>${d.ours.name}</th><th>時速</th><th>${oppName}</th><th>時速</th><th>差</th></tr>${
       d.hours.filter(h=>prev.ours.cum[h]!=null||prev.opp.cum[h]!=null).map(h=>{
         const o=prev.ours.cum[h],s=prev.ours.speed[h],p=prev.opp.cum[h],q=prev.opp.speed[h];
         const df=(o!=null&&p!=null)?o-p:null;
         return `<tr><td>${h==='24:00'?'24':parseInt(h)}時</td><td>${f1(o)}</td><td style="color:var(--mut)">${f1(s)}</td><td>${f1(p)}</td><td style="color:var(--mut)">${f1(q)}</td><td class="${df!=null?(df>=0?'good':'bad'):''}">${df!=null?(df>0?'+':'')+df.toFixed(1):'—'}</td></tr>`;
-      }).join('')}</table></div></div>`:''}`;
+      }).join('')}</table></div></div>`:''}
+    ${chatNoticeHtml(H,oc,pc,os,ps)}`;
   const pastSets=(key)=>(d.past||[]).flatMap(pd=>{
     const sets=[];
     const mk=(side,color)=>({label:`${side==='ours'?'霞':'相手'}(${pd.label})`,

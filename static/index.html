@@ -270,7 +270,7 @@ async function loadLive(){
     judgeCards+=`<div class="metric"><div class="l">本日勝率予想</div><div class="v ${wc}">${fc.win}%</div><div class="s">予測最終 ${fc.proj_ours}億 vs ${fc.proj_opp}億<br>過去戦績${fc.prior}%×${fc.basis}</div></div>`;
     if(fc.advice){
       const at={bad:['#fcebeb','#A32D2D'],mid:['#faeeda','#854F0B'],good:['#e1f5ee','#0F6E56']}[fc.advice.tone]||['#e6f1fb','#185FA5'];
-      judgeCards+=`<div class="metric" style="grid-column:1/-1;outline:2px solid ${at[1]};outline-offset:-2px"><div class="l">推奨アクション</div><div class="v" style="font-size:17px"><span class="badge" style="background:${at[0]};color:${at[1]}">${fc.advice.label}</span></div><div class="s" style="line-height:1.5">${fc.advice.text}</div></div>`;
+      judgeCards+=`<div class="metric" style="outline:2px solid ${at[1]};outline-offset:-2px"><div class="l">推奨アクション</div><div class="v" style="font-size:17px"><span class="badge" style="background:${at[0]};color:${at[1]}">${fc.advice.label}</span></div><div class="s"></div></div>`;
     }
   }
   // 前日同時刻のリード(日次対戦なので前日の同時点と比較できると撤退判断に便利)
@@ -304,13 +304,20 @@ async function loadLive(){
     ${(d.rank_history||[]).some(r=>r.opp!=null)?`<div class="card"><h2>総合順位の推移（過去開催含む）</h2><div class="chartbox" style="height:200px"><canvas id="rankC"></canvas></div></div>`:''}
     <div class="card"><h2>累積 Day分（億）${(d.past||[]).length?(d.past.length===1?' — 点線（前日貢献度）':' — 点線（過去日貢献度）'):''}</h2><div class="chartbox"><canvas id="cumC"></canvas></div></div>
     <div class="card"><h2>時速（億/h）</h2><div class="chartbox"><canvas id="spdC"></canvas></div></div>
-    ${prev?`<div class="card"><h2>${prev.label}日目の推移（数値・億）</h2><table>
-      <tr><th>時刻</th><th>自団累積</th><th>時速</th><th>相手累積</th><th>時速</th><th>差</th></tr>${
+    ${(oc.some(v=>v!=null)||pc.some(v=>v!=null))?`<div class="card"><h2>${d.label}の推移（数値・億）— 当日</h2><div style="overflow-x:auto"><table>
+      <tr><th>時刻</th><th>${d.ours.name}</th><th>時速</th><th>${oppName}</th><th>時速</th><th>差</th></tr>${
+      H.map((h,i)=>{const o=oc[i],p=pc[i];
+        if(o==null&&p==null) return '';
+        const df=(o!=null&&p!=null)?o-p:null;
+        return `<tr><td>${h}時</td><td>${f1(o)}</td><td style="color:var(--mut)">${f1(os[i])}</td><td>${f1(p)}</td><td style="color:var(--mut)">${f1(ps[i])}</td><td class="${df!=null?(df>=0?'good':'bad'):''}">${df!=null?(df>0?'+':'')+df.toFixed(1):'—'}</td></tr>`;
+      }).join('')}</table></div></div>`:''}
+    ${prev?`<div class="card"><h2>${prev.label}日目の推移（数値・億）— 前日</h2><div style="overflow-x:auto"><table>
+      <tr><th>時刻</th><th>${d.ours.name}</th><th>時速</th><th>${oppName}</th><th>時速</th><th>差</th></tr>${
       d.hours.filter(h=>prev.ours.cum[h]!=null||prev.opp.cum[h]!=null).map(h=>{
-        const oc=prev.ours.cum[h],os=prev.ours.speed[h],pc=prev.opp.cum[h],ps=prev.opp.speed[h];
-        const df=(oc!=null&&pc!=null)?oc-pc:null;
-        return `<tr><td>${h==='24:00'?'24':parseInt(h)}時</td><td>${f1(oc)}</td><td style="color:var(--mut)">${f1(os)}</td><td>${f1(pc)}</td><td style="color:var(--mut)">${f1(ps)}</td><td class="${df!=null?(df>=0?'good':'bad'):''}">${df!=null?(df>0?'+':'')+df.toFixed(1):'—'}</td></tr>`;
-      }).join('')}</table></div>`:''}`;
+        const o=prev.ours.cum[h],s=prev.ours.speed[h],p=prev.opp.cum[h],q=prev.opp.speed[h];
+        const df=(o!=null&&p!=null)?o-p:null;
+        return `<tr><td>${h==='24:00'?'24':parseInt(h)}時</td><td>${f1(o)}</td><td style="color:var(--mut)">${f1(s)}</td><td>${f1(p)}</td><td style="color:var(--mut)">${f1(q)}</td><td class="${df!=null?(df>=0?'good':'bad'):''}">${df!=null?(df>0?'+':'')+df.toFixed(1):'—'}</td></tr>`;
+      }).join('')}</table></div></div>`:''}`;
   const pastSets=(key)=>(d.past||[]).flatMap(pd=>{
     const sets=[];
     const mk=(side,color)=>({label:`${side==='ours'?'霞':'相手'}(${pd.label})`,

@@ -317,11 +317,15 @@ def api_live(q):
     p_ev = {x["day_of"]: x["today_point"] / 1e8 for x in opp_hist if x["raid_number"] == raid}
     o_rank = {x["day_of"]: x["rank"] for x in ours_hist if x["raid_number"] == raid}
     p_rank = {x["day_of"]: x["rank"] for x in opp_hist if x["raid_number"] == raid}
-    ref = [{"label": "予選(計)",
-            "ours": round(o_ev.get(1, 0) + o_ev.get(2, 0), 1),
-            "opp": round(p_ev.get(1, 0) + p_ev.get(2, 0), 1) if p_ev else None,
-            "ours_rank": o_rank.get(2) or o_rank.get(1),
-            "opp_rank": p_rank.get(2) or p_rank.get(1)}]
+    # 予選も当日分(1日目/2日目)で表示。本戦は today_point がそのまま当日分
+    ylbl = {1: "予選1日目", 2: "予選2日目", 3: "インターバル"}
+    ref = []
+    for do in (1, 2, 3):
+        if do in o_ev or do in p_ev:
+            ref.append({"label": ylbl[do],
+                        "ours": round(o_ev.get(do, 0), 1),
+                        "opp": round(p_ev[do], 1) if do in p_ev else None,
+                        "ours_rank": o_rank.get(do), "opp_rank": p_rank.get(do)})
     for do in range(4, cur_do):
         if do in o_ev or do in p_ev:
             ref.append({"label": lbl.get(do, str(do)),

@@ -231,7 +231,7 @@ def api_live(q):
     battle = [s for s in m["schedules"] if s.get("day_of", 0) >= 4]
     if not date:
         date = battle[-1]["day"] if battle else time.strftime("%Y-%m-%d")
-    day_label = {s["day"]: f"本戦{s['day_of'] - 3}" for s in battle}
+    day_label = {s["day"]: f"本戦{s['day_of'] - 3}日目" for s in battle}
     past_n = int(q.get("past", ["0"])[0])
     past_dates = [s["day"] for s in battle if s["day"] < date][-past_n:] if past_n else []
 

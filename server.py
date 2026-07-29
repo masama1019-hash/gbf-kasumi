@@ -491,16 +491,22 @@ def api_live(q):
                                             round(o_now - p_now, 1), hk, round(fo - fp, 1))}
 
     # 過去開催の総合順位推移(最終day_ofのrank)
-    def final_ranks(rows):
-        ev = {}
-        for r in rows:
-            rr = r["raid_number"]
-            if rr not in ev or r["day_of"] > ev[rr]["day_of"]:
-                ev[rr] = r
-        return {rr: v["rank"] for rr, v in ev.items()}
-    o_rk, p_rk = final_ranks(ours_hist), final_ranks(opp_hist)
-    rk_raids = sorted(set(o_rk) | set(p_rk), reverse=True)[:8][::-1]
-    rank_history = [{"raid": rn, "ours": o_rk.get(rn), "opp": p_rk.get(rn)} for rn in rk_raids]
+    # 直近3開催の 予選→本戦1〜4 の総合順位推移
+    RK_DAYS = [(2, "予選"), (4, "本1"), (5, "本2"), (6, "本3"), (7, "本4")]
+    rk3 = sorted({x["raid_number"] for x in ours_hist} | {x["raid_number"] for x in opp_hist},
+                 reverse=True)[:3][::-1]
+
+    def rank_at(rows):
+        return {(x["raid_number"], x["day_of"]): x["rank"] for x in rows}
+    o_at, p_at = rank_at(ours_hist), rank_at(opp_hist)
+    rank_history = []
+    for rn in rk3:
+        for do, dl in RK_DAYS:
+            o, p = o_at.get((rn, do)), p_at.get((rn, do))
+            if o is None and p is None:
+                continue
+            rank_history.append({"label": f"{rn}回{dl}", "raid": rn, "day_of": do,
+                                 "ours": o, "opp": p})
 
     return {"date": date, "raid": raid, "hours": HOURS, "label": day_label.get(date, date),
             "ours": {"name": OURS_NAME, "cum": ours, "speed": _speeds(ours)},

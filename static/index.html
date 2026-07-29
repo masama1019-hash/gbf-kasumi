@@ -169,10 +169,25 @@ function chatLine(t,o,p,os_,ps_,withSpeed){
   if(!withSpeed) return `${t}時時点でこちら${f1(o)}億　相手${f1(p)}億　貢献差${f1(d)}億`;
   return `${t}時時点でこちら${f1(o)}億(${f1(os_)}億)　相手${f1(p)}億(${f1(ps_)}億)　貢献差${f1(d)}億(${f1(os_-ps_)}億)`;
 }
+// 予選用（相手→300ボーダー、末尾に団順位）
+function chatLineYosen(t,o,b,os_,bs_,rank,withSpeed){
+  const d=o-b, rk=(rank!=null)?`　団順位${rank}位`:'';
+  if(!withSpeed) return `${t}時点でこちら${f1(o)}億　300ボーダー${f1(b)}億　貢献差${f1(d)}億${rk}`;
+  return `${t}時点でこちら${f1(o)}億(${f1(os_)}億)　300ボーダー${f1(b)}億(${f1(bs_)}億)　貢献差${f1(d)}億(${f1(os_-bs_)}億)${rk}`;
+}
+function chatNoticeYosenHtml(L,oc,bc,os,bs,ranks){
+  const lines=[];
+  L.forEach((t,i)=>{ if(oc[i]==null||bc[i]==null) return;
+    lines.push(chatLineYosen(t,oc[i],bc[i],os[i],bs[i],ranks[i], i>0 && os[i]!=null && bs[i]!=null)); });
+  return chatBox(lines);
+}
 function chatNoticeHtml(H,oc,pc,os,ps){
   const lines=[];
   H.forEach((t,i)=>{ if(oc[i]==null||pc[i]==null) return;
     lines.push(chatLine(t,oc[i],pc[i],os[i],ps[i], i>0 && os[i]!=null && ps[i]!=null)); });
+  return chatBox(lines);
+}
+function chatBox(lines){
   if(!lines.length) return '';
   CHAT=lines;
   const latest=lines[lines.length-1];
@@ -244,7 +259,8 @@ async function loadYosen(){
     <div class="card"><h2>予選推移（数値・億）</h2><div style="overflow-x:auto"><table><tr><th>時刻</th><th>霞桜団</th><th>順位</th><th>時速</th><th>300位</th><th>時速</th><th>差</th>${p?'<th>前回300位</th><th>前回比</th>':''}</tr>${
       K.map((k,i)=>{const df=(oc[i]!=null&&bc[i]!=null)?oc[i]-bc[i]:null; const bd=(bc[i]!=null&&pb[i]!=null)?bc[i]-pb[i]:null;
         return `<tr><td>${L[i]}</td><td>${f1(oc[i])}</td><td style="color:var(--mut)">${orank[i]?orank[i]+'位':'—'}</td><td style="color:var(--mut)">${f1(os[i])}</td><td>${f1(bc[i])}</td><td style="color:var(--mut)">${f1(bs[i])}</td><td class="${df!=null?(df>=0?'good':'bad'):''}">${df!=null?(df>0?'+':'')+df.toFixed(1):'—'}</td>${p?`<td style="color:var(--mut)">${f1(pb[i])}</td><td class="${bd!=null?(bd>0?'bad':'good'):''}">${bd!=null?(bd>0?'+':'')+bd.toFixed(1):'—'}</td>`:''}</tr>`;}).join('')
-    }</table></div></div>`;
+    }</table></div></div>
+    ${chatNoticeYosenHtml(L,oc,bc,os,bs,orank)}`;
   mkChart('#yCum','line',L,[
     {label:'霞桜団',data:oc,borderColor:'#378ADD',backgroundColor:'#378ADD',tension:.2,pointRadius:0,borderWidth:2.5,spanGaps:true},
     {label:'300位',data:bc,borderColor:'#D85A30',backgroundColor:'#D85A30',tension:.2,pointRadius:0,borderWidth:2.5,spanGaps:true},
@@ -298,6 +314,8 @@ async function loadLive(){
     }
     const wc=fc.win>=60?'good':(fc.win>=40?'':'bad');
     judgeCards+=`<div class="metric"><div class="l">本日勝率予想</div><div class="v ${wc}">${fc.win}%</div><div class="s">予測最終 ${fc.proj_ours}億 vs ${fc.proj_opp}億<br>過去戦績${fc.prior}%×${fc.basis}</div></div>`;
+    const patCard=(p,who)=>p?`<div class="metric"><div class="l">${who} 時間帯パターン</div><div class="v" style="font-size:17px">${p.label}</div><div class="s">朝${p.pct['朝']}% 昼${p.pct['昼']}% 夕${p.pct['夕']}% 夜${p.pct['夜']}%</div></div>`:'';
+    judgeCards+=patCard(fc.ours_pattern,'自団')+patCard(fc.opp_pattern,'相手');
     if(fc.advice){
       const at={bad:['#fcebeb','#A32D2D'],mid:['#faeeda','#854F0B'],good:['#e1f5ee','#0F6E56']}[fc.advice.tone]||['#e6f1fb','#185FA5'];
       judgeCards+=`<div class="metric" style="grid-column:1/-1;outline:2px solid ${at[1]};outline-offset:-2px"><div class="l">推奨アクション</div><div class="v" style="font-size:17px"><span class="badge" style="background:${at[0]};color:${at[1]}">${fc.advice.label}</span></div><div class="s" style="line-height:1.5">${fc.advice.text}</div></div>`;

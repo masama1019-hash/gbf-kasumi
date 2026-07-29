@@ -22,6 +22,8 @@
   .metric .l { font-size:12px; color:var(--mut); }
   .metric .v { font-size:22px; font-weight:600; margin-top:2px; }
   .metric .s { font-size:11px; color:var(--mut); }
+  .metric.ours { background:#f1f7fe; box-shadow:inset 3px 0 0 var(--blue), 0 1px 3px rgba(0,0,0,.06); }
+  .metric.opp  { background:#fdf4f0; box-shadow:inset 3px 0 0 var(--red),  0 1px 3px rgba(0,0,0,.06); }
   select,input,button { font-size:14px; padding:8px 10px; border:1px solid #d5dae0; border-radius:8px; background:#fff; }
   button.primary { background:var(--blue); color:#fff; border:none; cursor:pointer; }
   .minitabs { display:flex; gap:6px; margin-bottom:10px; }
@@ -318,20 +320,20 @@ async function loadLive(){
     const hkey=d.hours[lastIdx];
     const oj=paceJudge(prev.opp.cum[hkey]?(d.opp.cum[hkey]??null)/prev.opp.cum[hkey]:null);
     const kj=paceJudge(prev.ours.cum[hkey]?(d.ours.cum[hkey]??null)/prev.ours.cum[hkey]:null);
-    if(kj) judgeCards+=`<div class="metric"><div class="l">自団 ${prev.label}同時刻比</div><div class="v" style="font-size:18px">${kj.pct}%</div><div class="s">${kj.txt}</div></div>`;
-    if(oj) judgeCards+=`<div class="metric"><div class="l">相手 ${prev.label}同時刻比</div><div class="v" style="font-size:18px">${oj.pct}%</div><div class="s"><span class="badge" style="background:${oj.bg};color:${oj.fg}">${oj.txt}</span></div></div>`;
+    if(kj) judgeCards+=`<div class="metric ours"><div class="l">自団 ${prev.label}同時刻比</div><div class="v" style="font-size:18px">${kj.pct}%</div><div class="s">${kj.txt}</div></div>`;
+    if(oj) judgeCards+=`<div class="metric opp"><div class="l">相手 ${prev.label}同時刻比</div><div class="v" style="font-size:18px">${oj.pct}%</div><div class="s"><span class="badge" style="background:${oj.bg};color:${oj.fg}">${oj.txt}</span></div></div>`;
   }
   // 相手方針 & 勝率予想
   const fc=d.forecast;
   if(fc){
     if(fc.policy){
       const tone={bad:['#fcebeb','#A32D2D'],mid:['#faeeda','#854F0B'],good:['#e1f5ee','#0F6E56']}[fc.policy.tone];
-      judgeCards+=`<div class="metric"><div class="l">相手の方針(直近時速)</div><div class="v" style="font-size:17px"><span class="badge" style="background:${tone[0]};color:${tone[1]}">${fc.policy.label}</span></div><div class="s">前日同時間帯の時速比 ${fc.policy.pct}%</div></div>`;
+      judgeCards+=`<div class="metric opp"><div class="l">相手の方針(直近時速)</div><div class="v" style="font-size:17px"><span class="badge" style="background:${tone[0]};color:${tone[1]}">${fc.policy.label}</span></div><div class="s">前日同時間帯の時速比 ${fc.policy.pct}%</div></div>`;
     }
+    const patCard=(p,who)=>p?`<div class="metric ${who==='自団'?'ours':'opp'}"><div class="l">${who} 時間帯パターン</div><div class="v" style="font-size:17px">${p.label}</div><div class="s">朝${p.pct['朝']}% 昼${p.pct['昼']}% 夕${p.pct['夕']}% 夜${p.pct['夜']}%</div></div>`:'';
+    judgeCards+=patCard(fc.ours_pattern,'自団')+patCard(fc.opp_pattern,'相手');
     const wc=fc.win>=60?'good':(fc.win>=40?'':'bad');
     judgeCards+=`<div class="metric"><div class="l">本日勝率予想</div><div class="v ${wc}">${fc.win}%</div><div class="s">予測最終 ${fc.proj_ours}億 vs ${fc.proj_opp}億<br>過去戦績${fc.prior}%×${fc.basis}</div></div>`;
-    const patCard=(p,who)=>p?`<div class="metric"><div class="l">${who} 時間帯パターン</div><div class="v" style="font-size:17px">${p.label}</div><div class="s">朝${p.pct['朝']}% 昼${p.pct['昼']}% 夕${p.pct['夕']}% 夜${p.pct['夜']}%</div></div>`:'';
-    judgeCards+=patCard(fc.ours_pattern,'自団')+patCard(fc.opp_pattern,'相手');
     if(fc.advice){
       const at={bad:['#fcebeb','#A32D2D'],mid:['#faeeda','#854F0B'],good:['#e1f5ee','#0F6E56']}[fc.advice.tone]||['#e6f1fb','#185FA5'];
       judgeCards+=`<div class="metric" style="grid-column:1/-1;outline:2px solid ${at[1]};outline-offset:-2px"><div class="l">推奨アクション</div><div class="v" style="font-size:17px"><span class="badge" style="background:${at[0]};color:${at[1]}">${fc.advice.label}</span></div><div class="s" style="line-height:1.5">${fc.advice.text}</div></div>`;
@@ -354,11 +356,11 @@ async function loadLive(){
   $('#liveBody').innerHTML=`
     ${lastIdx<0?'<div class="card" style="color:var(--mut)">この回の毎時データはgbfdataに未収録のため、グラフ・リードは表示できません（参考情報の日別実績は有効です）</div>':''}
     <div class="metrics">
-      <div class="metric"><div class="l">${d.ours.name} 本日Day分</div><div class="v">${lo?.toFixed(1)??'—'}<span style="font-size:12px">億</span></div><div class="s">前日終了比 / ${H[lastIdx]??''}時時点</div></div>
-      <div class="metric"><div class="l">${oppNameHtml} 本日Day分</div><div class="v">${lp?.toFixed(1)??'—'}<span style="font-size:12px">億</span></div><div class="s">前日終了比</div></div>
+      <div class="metric ours"><div class="l">${d.ours.name} 本日Day分</div><div class="v">${lo?.toFixed(1)??'—'}<span style="font-size:12px">億</span></div><div class="s">前日終了比 / ${H[lastIdx]??''}時時点</div></div>
+      <div class="metric opp"><div class="l">${oppNameHtml} 本日Day分</div><div class="v">${lp?.toFixed(1)??'—'}<span style="font-size:12px">億</span></div><div class="s">前日終了比</div></div>
       <div class="metric"><div class="l">本日リード(Day分の差)</div><div class="v ${lead>=0?'good':'bad'}">${lead!=null?(lead>0?'+':'')+lead.toFixed(1):'—'}<span style="font-size:12px">億</span></div><div class="s">${lead!=null?(lead>=0?'勝ち越し中':'ビハインド'):''}${prevLeadTxt?' / '+prevLeadTxt:''}</div></div>
-      <div class="metric"><div class="l">${d.ours.name} 本日最高時速</div><div class="v bad">${opk.v?.toFixed(1)??'—'}<span style="font-size:12px">億/h</span></div><div class="s">${opk.h?opk.h+'時':''}</div></div>
-      <div class="metric"><div class="l">${oppName} 本日最高時速</div><div class="v bad">${ppk.v?.toFixed(1)??'—'}<span style="font-size:12px">億/h</span></div><div class="s">${ppk.h?ppk.h+'時':''}</div></div>
+      <div class="metric ours"><div class="l">${d.ours.name} 本日最高時速</div><div class="v bad">${opk.v?.toFixed(1)??'—'}<span style="font-size:12px">億/h</span></div><div class="s">${opk.h?opk.h+'時':''}</div></div>
+      <div class="metric opp"><div class="l">${oppName} 本日最高時速</div><div class="v bad">${ppk.v?.toFixed(1)??'—'}<span style="font-size:12px">億/h</span></div><div class="s">${ppk.h?ppk.h+'時':''}</div></div>
       ${judgeCards}
     </div>
     ${(d.ref||[]).length?`<div class="card"><h2>参考情報</h2><table><tr><th>日程</th><th>${d.ours.name}</th><th>順位</th><th>${d.opp.name||'相手'}</th><th>順位</th><th>差</th></tr>${
@@ -444,9 +446,9 @@ async function loadScout(){
   const P=d.prev_day;
   const cards=`<div class="metrics">
     ${P?`<div class="metric" style="outline:2px solid var(--blue);outline-offset:-2px"><div class="l">前日貢献度（${P.label}）— マッチング基準</div><div class="v ${P.diff!=null?(P.diff>=0?'good':'bad'):''}">${P.diff!=null?(P.diff>0?'+':'')+f1(P.diff):'—'}<span style="font-size:12px">億</span></div><div class="s">霞桜団 ${f1(P.ours)} / ${d.name} ${f1(P.opp)}</div></div>`:''}
-    <div class="metric"><div class="l">${d.name} 直近総計</div><div class="v">${f1(last.total)}<span style="font-size:12px">億</span></div><div class="s">第${last.raid}回 ${last.final_rank?last.final_rank+'位':''}</div></div>
-    <div class="metric"><div class="l">相手 本戦日毎平均</div><div class="v">${f1(d.past_avg)}<span style="font-size:12px">億</span></div><div class="s">過去3回</div></div>
-    <div class="metric"><div class="l">霞桜団 本戦日毎平均</div><div class="v ${avgDiff!=null?(avgDiff>=0?'good':'bad'):''}">${f1(d.ours_avg)}<span style="font-size:12px">億</span></div><div class="s">${avgDiff!=null?(avgDiff>=0?'+':'')+f1(avgDiff)+'億 差':'同期間'}</div></div>
+    <div class="metric opp"><div class="l">${d.name} 直近総計</div><div class="v">${f1(last.total)}<span style="font-size:12px">億</span></div><div class="s">第${last.raid}回 ${last.final_rank?last.final_rank+'位':''}</div></div>
+    <div class="metric opp"><div class="l">相手 本戦日毎平均</div><div class="v">${f1(d.past_avg)}<span style="font-size:12px">億</span></div><div class="s">過去3回</div></div>
+    <div class="metric ours"><div class="l">霞桜団 本戦日毎平均</div><div class="v ${avgDiff!=null?(avgDiff>=0?'good':'bad'):''}">${f1(d.ours_avg)}<span style="font-size:12px">億</span></div><div class="s">${avgDiff!=null?(avgDiff>=0?'+':'')+f1(avgDiff)+'億 差':'同期間'}</div></div>
     ${d.winrate!=null?`<div class="metric"><div class="l">勝率目安</div><div class="v ${wcls}">${d.winrate}%</div><div class="s">${cmpN?`過去${cmpN}回中 霞桜団が上回り ${wins}回`:''}</div></div>`:''}
   </div>`;
   // 過去3戦の本戦比較テーブル

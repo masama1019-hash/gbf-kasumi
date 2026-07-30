@@ -28,6 +28,9 @@ OURS_UID = 3052899        # 個ランの時刻毎を先読みする本人(Laphis
 OPP_FILE = "/Applications/gbf/honsen_opponent.txt"
 HOURS = [f"{h:02d}:00" for h in range(8, 24)] + ["24:00"]
 
+# gbfdataが1リクエストで返せる最大件数(1000は不可)。団・個人とも500順位ぶんまとめて見る
+PAGE = 500
+
 # 団員(霞桜団)のGN/ユーザーID。個ランでの名前検索(users/search)を省いて即取得できる
 # 出典: 団員貢献度DBスプレッドシート(2026-07-30時点の30名)
 MEMBERS = [
@@ -51,6 +54,7 @@ CACHE_MAX = 1200
 # 先読みで温めたURL。他の団員を何人も検索しても本人ぶんが押し出されないよう削除対象から外す
 _pinned = set()
 PIN_MAX = 600
+NEG_TTL = 600     # 取得失敗(404や一時エラー)を覚えておく秒数。無駄な再取得を防ぐ
 _pin_on = False
 
 
@@ -77,12 +81,16 @@ def get(url, ttl=180, slim=None):
     now = time.time()
     with _cache_lock:
         hit = _cache.get(url)
-        if hit and now - hit[0] < ttl:
+        if hit and now - hit[0] < (ttl if hit[1] is not None else NEG_TTL):
             return hit[1]
     req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0", "Accept": "application/json"})
     try:
         data = json.loads(urllib.request.urlopen(req, timeout=25).read())
     except Exception:
+        # 失敗も短時間キャッシュする。未収録の時刻(404)を毎回取り直すと、
+        # 1画面で十数リクエストが毎回無駄になる(予選の19時で実測6.5秒)。
+        # 一時的な失敗から復帰できるようTTLは短くしておく
+        _cache_put(url, now, None)
         return None
     if slim:
         try:
@@ -114,7 +122,7 @@ def _slim_guilds(d):
             "snapshots": (d or {}).get("snapshots") or []}
 
 
-def rankings_page(raid, date, rank, time_=None, per_page=50):
+def rankings_page(raid, date, rank, time_=None, per_page=PAGE):
     q = {"raid_number": raid, "day": date, "rank": max(1, rank), "per_page": per_page}
     if time_:
         q["time"] = time_
@@ -123,11 +131,12 @@ def rankings_page(raid, date, rank, time_=None, per_page=50):
     return (d or {}).get("data") or []
 
 
-def find_guild(raid, date, time_, gid=None, name=None, hint=300, max_pages=25):
-    """rankingsから団を探す(hint近傍→拡張)。(point, rank, name, gid) or None"""
-    base = ((hint - 1) // 50) * 50 + 1
+def find_guild(raid, date, time_, gid=None, name=None, hint=300, max_pages=8):
+    """rankingsから団を探す(hint近傍→拡張)。(point, rank, name, gid) or None
+    1ページ500順位ぶんなので max_pages=8 で hint の前後およそ±2000位をカバーする"""
+    base = ((hint - 1) // PAGE) * PAGE + 1
     order, tried = [base], set()
-    for dd in range(50, 3000, 50):
+    for dd in range(PAGE, 24000, PAGE):
         order += [base + dd, base - dd]
     for s in order:
         if s < 1 or s > 30000 or s in tried:
@@ -169,10 +178,16 @@ def prev_contrib(rows, raid, cur_do):
     return round(y / 1e8, 1) if y else None
 
 
+def pages(urls, ttl):
+    """複数ページを並列取得して元の順で返す。Renderは0.1CPUで往復も遅いため、
+    数ページを逐次で待つとそれだけで数秒かかる(config が6.2秒→約1秒に改善)"""
+    with ThreadPoolExecutor(max_workers=min(8, max(1, len(urls)))) as ex:
+        return list(ex.map(lambda u: get(u, ttl=ttl), urls))
+
+
 def guild_histories(gid):
     rows = []
-    for pg in range(1, 8):
-        d = get(f"{GBF}/guilds/{gid}/histories?page={pg}", ttl=3600)
+    for d in pages([f"{GBF}/guilds/{gid}/histories?page={pg}" for pg in range(1, 8)], 3600):
         data = (d or {}).get("data") or []
         if not data:
             break
@@ -205,14 +220,31 @@ def raid_arg(q):
 
 
 def hourly_series(raid, date, base_point, gid, hint):
-    """1日分の毎時Day分series {time: 億}"""
-    out = {}
-    h = hint
-    for t in HOURS:
-        r = find_guild(raid, date, t, gid=gid, hint=h)
-        if r:
-            out[t] = round((r[0] - base_point) / 1e8, 1)
-            h = r[1]
+    """1日分の毎時Day分series {time: 億}。
+    以前は時刻を1つずつ順に見て順位を引き継いでいたが、17時刻ぶんの往復を直列に待つため
+    Render(0.1CPU・高レイテンシ)では1日あたり数秒かかっていた。団の順位は1日で大きく動かないので
+    同じhintで並列に引き、取れなかった時刻だけ実測値の近傍で引き直す(個ランと同じ考え方)"""
+    out, ranks = {}, {}
+
+    def one(t):
+        return t, find_guild(raid, date, t, gid=gid, hint=hint)
+
+    with ThreadPoolExecutor(max_workers=8) as ex:
+        for t, r in ex.map(one, HOURS):
+            if r:
+                out[t] = round((r[0] - base_point) / 1e8, 1)
+                ranks[t] = r[1]
+    miss = [t for t in HOURS if t not in out]
+    if miss and ranks:                       # 実測できた順位の平均を起点に取り直す
+        h2 = int(sum(ranks.values()) / len(ranks))
+
+        def retry(t):
+            return t, find_guild(raid, date, t, gid=gid, hint=h2, max_pages=12)
+
+        with ThreadPoolExecutor(max_workers=8) as ex:
+            for t, r in ex.map(retry, miss):
+                if r:
+                    out[t] = round((r[0] - base_point) / 1e8, 1)
     return out
 
 
@@ -794,24 +826,39 @@ def yosen_series(raid, dates, ours_hint=120):
     o_cum, o_rank, b_cum, labels = {}, {}, {}, []
     snaps = []
     for i, date in enumerate(dates):
-        times = _snapshot_times(raid, date)
+        real = _snapshot_times(raid, date)
+        times = real
         if i == 0 and "19:00" not in times:
-            times = ["19:00"] + times
+            times = ["19:00"] + times      # 1日目の開始19時はgbfdata未収録。軸のために足すだけ
         if i == len(dates) - 1:
             times = [t for t in times if int(t.split(":")[0]) <= 24]
         for t in times:
             key = f"{date} {t}"
             labels.append((key, f"{int(t.split(':')[0])}時"))
-            snaps.append((key, date, t))
+            snaps.append((key, date, t, t in real))
 
     def one(item):
-        key, date, t = item
+        key, date, t, exists = item
         res = {"key": key}
-        bd = get(f"{GBF}/guilds/rankings?" + urllib.parse.urlencode(
-            {"raid_number": raid, "day": date, "rank": 300, "per_page": 1, "time": t}))
+        if not exists:
+            return res          # 軸のために足した合成時刻。取得しても404なので省く
+                                # (19:00は2日目には実在するので時刻名で判定してはいけない)
+
+        def border():
+            # ttl未指定だと既定180秒になり、確定した過去回でも毎回取り直していた
+            return get(f"{GBF}/guilds/rankings?" + urllib.parse.urlencode(
+                {"raid_number": raid, "day": date, "rank": 300, "per_page": 1, "time": t}),
+                ttl=day_ttl(date))
+
+        def ours():
+            return find_guild(raid, date, t, gid=OURS_GID, name=OURS_NAME,
+                              hint=ours_hint, max_pages=12)
+
+        with ThreadPoolExecutor(max_workers=2) as ex2:   # 2本の通信を直列に待たない
+            fb, fo = ex2.submit(border), ex2.submit(ours)
+            bd, r = fb.result(), fo.result()
         if bd and bd.get("data"):
             res["b"] = round(bd["data"][0]["point"] / 1e8, 1)
-        r = find_guild(raid, date, t, gid=OURS_GID, name=OURS_NAME, hint=ours_hint, max_pages=12)
         if r:
             res["o"], res["r"] = round(r[0] / 1e8, 1), r[1]
         return res
@@ -843,8 +890,12 @@ def api_yosen(q):
     def yosen_dates(rn):
         sc = meta_for(rn)["schedules"]
         return [s["day"] for s in sorted(sc, key=lambda s: s["day_of"]) if s["day_of"] in (1, 2)]
-    cur = yosen_series(raid, yosen_dates(raid))
-    prev = yosen_series(raid - 1, yosen_dates(raid - 1)) if yosen_dates(raid - 1) else None
+    # 今回と前回オーバーレイは独立なので同時に集める(直列だと待ち時間が倍になる)
+    pdates = yosen_dates(raid - 1)
+    with ThreadPoolExecutor(max_workers=2) as ex:
+        fc = ex.submit(yosen_series, raid, yosen_dates(raid))
+        fp = ex.submit(yosen_series, raid - 1, pdates) if pdates else None
+        cur, prev = fc.result(), (fp.result() if fp else None)
     return {"raid": raid, "keys": cur["keys"], "labels": cur["labels"],
             "ours": cur["ours"], "border": cur["border"],
             "prev": {"labels": prev["labels"], "ours": prev["ours"], "border": prev["border"]} if prev else None}
@@ -859,14 +910,13 @@ def user_search(q):
     return (d or {}).get("data") or []
 
 
-def user_histories(uid, pages=6):
+def user_histories(uid, npages=6):
     rows = []
-    for pg in range(1, pages + 1):
-        d = get(f"{GBF}/users/{uid}/histories?page={pg}", ttl=1800)
+    for d in pages([f"{GBF}/users/{uid}/histories?page={pg}" for pg in range(1, npages + 1)], 1800):
         data = (d or {}).get("data") or []
-        rows += data
-        if not (d or {}).get("meta", {}).get("has_next"):
+        if not data:
             break
+        rows += data
     return rows
 
 
@@ -915,8 +965,6 @@ def _slim_users(d):
     return {"m": {x["user_id"]: (x.get("point"), x.get("rank"), x.get("hourly_point"))
                   for x in (d or {}).get("data") or [] if x.get("user_id") is not None}}
 
-
-PAGE = 500   # gbfdataが1リクエストで返せる最大件数(1000は不可)。500順位ぶんまとめて見る
 
 
 def user_rankings_page(raid, date, rank, time_=None, per_page=PAGE):

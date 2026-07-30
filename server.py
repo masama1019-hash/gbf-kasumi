@@ -24,6 +24,7 @@ STATIC = os.path.join(BASE, "static")
 GBF = "https://gbfdata.com/api"
 OURS_NAME = "霞桜団"
 OURS_GID = 1147615
+OURS_UID = 3052899        # 個ラン全期間を先読みする本人(Laphis)
 OPP_FILE = "/Applications/gbf/honsen_opponent.txt"
 HOURS = [f"{h:02d}:00" for h in range(8, 24)] + ["24:00"]
 
@@ -44,18 +45,30 @@ MEMBERS = [
 
 _cache = {}
 _cache_lock = threading.Lock()
-# エントリ数上限(超えたら古い順に捨てる)。1ページ500件を間引いて1件およそ40KB。
-# 全期間モード1回分(7日×約19時刻×数ページ)を保持できないと2回目もキャッシュが効かない
-CACHE_MAX = 800
+# エントリ数上限(超えたら古い順に捨てる)。1件およそ110KB なので上限×110KB が概ねの上限メモリ。
+# 全期間モード1回分(7日×約18時刻×数ページ)を保持できないと2回目もキャッシュが効かない
+CACHE_MAX = 1200
+# 先読みで温めたURL。他の団員を何人も検索しても本人ぶんが押し出されないよう削除対象から外す
+_pinned = set()
+PIN_MAX = 600
+_pin_on = False
 
 
 def _cache_put(url, now, data):
-    """保存時に期限切れを掃除し、上限を超えたら古い順に削除(メモリ肥大の防止)"""
+    """保存時に上限を超えたら古い順に削除(メモリ肥大の防止)。
+    先読み済み(_pinned)のURLは残して、本人の全期間が常にキャッシュ命中で返るようにする"""
     with _cache_lock:
         _cache[url] = (now, data)
+        if _pin_on and len(_pinned) < PIN_MAX:
+            _pinned.add(url)
         if len(_cache) > CACHE_MAX:
-            for k in sorted(_cache, key=lambda k: _cache[k][0])[:len(_cache) - CACHE_MAX]:
+            over = len(_cache) - CACHE_MAX
+            old = sorted(_cache, key=lambda k: _cache[k][0])
+            for k in (k for k in old if k not in _pinned):
                 _cache.pop(k, None)
+                over -= 1
+                if over <= 0:
+                    break
 
 
 def get(url, ttl=180, slim=None):
@@ -788,7 +801,7 @@ def yosen_series(raid, dates, ours_hint=120):
             times = [t for t in times if int(t.split(":")[0]) <= 24]
         for t in times:
             key = f"{date} {t}"
-            labels.append((key, f"{int(t.split(':')[0]) % 24}時"))
+            labels.append((key, f"{int(t.split(':')[0])}時"))
             snaps.append((key, date, t))
 
     def one(item):
@@ -896,10 +909,11 @@ def user_border_hourly(raid, date):
 
 
 def _slim_users(d):
-    return {"data": [{"user_id": x.get("user_id"), "name": x.get("name"),
-                      "point": x.get("point"), "rank": x.get("rank"),
-                      "hourly_point": x.get("hourly_point")}
-                     for x in (d or {}).get("data") or []]}
+    """キャッシュ保存前に user_id → (点数, 順位, 時速) の辞書へ畳む。
+    500件ぶんのdictを抱えずに済んでメモリが数分の一になり、find_user も走査せず直接引ける
+    (このページに名前は不要なので捨てる)"""
+    return {"m": {x["user_id"]: (x.get("point"), x.get("rank"), x.get("hourly_point"))
+                  for x in (d or {}).get("data") or [] if x.get("user_id") is not None}}
 
 
 PAGE = 500   # gbfdataが1リクエストで返せる最大件数(1000は不可)。500順位ぶんまとめて見る
@@ -911,7 +925,7 @@ def user_rankings_page(raid, date, rank, time_=None, per_page=PAGE):
         q["time"] = time_
     d = get(f"{GBF}/users/rankings?" + urllib.parse.urlencode(q),
             ttl=day_ttl(date), slim=_slim_users)
-    return (d or {}).get("data") or []
+    return (d or {}).get("m") or {}
 
 
 def find_user(raid, date, time_, uid, hint=3000, max_pages=12):
@@ -925,47 +939,32 @@ def find_user(raid, date, time_, uid, hint=3000, max_pages=12):
         if s < 1 or s > 300000 or s in tried:
             continue
         tried.add(s)
-        for x in user_rankings_page(raid, date, s, time_):
-            if x.get("user_id") == uid:
-                return round(x["point"] / 1e8, 1), x["rank"], x.get("hourly_point")
+        hit = user_rankings_page(raid, date, s, time_).get(uid)
+        if hit and hit[0] is not None and hit[1] is not None:
+            return round(hit[0] / 1e8, 1), hit[1], hit[2]
         if len(tried) >= max_pages:
             break
     return None
 
 
-def find_user_deep(raid, date, time_, uid, p_raw):
-    """順位が読めないほど深い位置にいる時刻用。rankingsは点数の降順なので、
-    推定点数 p_raw に対応する順位を二分探索(約10リクエスト)で絞ってから近傍を見る。
-    予選初日の数万位のような、hint近傍の走査では届かない位置を拾うための最後の手段。"""
-    lo, hi, guess = 1, 200001, None
-    for _ in range(10):
-        if hi - lo <= PAGE:
-            break
-        mid = ((lo + hi) // 2 // PAGE) * PAGE + 1
-        d = user_rankings_page(raid, date, mid, time_)
-        if not d:                      # その深さにデータが無い→もっと上位側へ
-            hi = mid
-            continue
-        for x in d:
-            if x.get("user_id") == uid:
-                return round(x["point"] / 1e8, 1), x["rank"], x.get("hourly_point")
-        guess = mid
-        if p_raw > d[0]["point"]:
-            hi = mid
-        elif p_raw < d[-1]["point"]:
-            lo = mid + PAGE
-        else:
-            break                      # 点数帯は合っているのに居ない=推定がずれている
-    return find_user(raid, date, time_, uid, hint=max(1, guess or lo), max_pages=6)
-
-
-def koran_hourly(raid, date, uid, hint=3000, hint_start=None):
+def koran_hourly(raid, date, uid, hint=3000, hint_start=None, day_of=None):
     """指定日の 本人 と 2000位/100000位 の時刻毎累積・時速(億)。
     2段階で探す: まず均等に5点(アンカー)だけ広めに探し、残りの時刻はその実測順位を
     前後から補間して狭い範囲だけ見る。全時刻を広く走査するより無駄が減り、並列も保てる。"""
     b = user_border_hourly(raid, date)
     b2000, b100k = b.get(2000, {}), b.get(100000, {})
     times = sorted(set(b2000) | set(b100k), key=lambda t: int(t.split(":")[0]))
+    # 本戦(day_of 4〜7)は7〜24時が稼働時間。24時以降は貢献度に反映されないので走査しない
+    if day_of and day_of >= 4:
+        times = [t for t in times if int(t.split(":")[0]) <= 24]
+    # 予選・インターバルは深夜も稼働するため、末尾はボーダーが動いたかで判定して落とす
+    # (走査しても増分0が並ぶだけの時刻を削る)
+    while len(times) > 1:
+        t, pv = times[-1], times[-2]
+        if any(x.get(t) is not None and x.get(pv) is not None and x[t] > x[pv]
+               for x in (b2000, b100k)):
+            break
+        times.pop()
     n = max(1, len(times))
     p_cum, p_rank, found = {}, {}, {}      # found: 時刻index -> 実測順位
 
@@ -1003,25 +1002,16 @@ def koran_hourly(raid, date, uid, hint=3000, hint_start=None):
     take(scan([i for i in anchors if 0 <= i < n], 14))          # ①アンカーは広めに
     take(scan([i for i in range(n) if i not in found], 6))      # ②残りは補間済みなので狭く
 
-    # ③それでも取れない時刻は点数から順位を二分探索(予選初日の数万位など)
-    rest = [i for i in range(n) if i not in found]
-    if rest and p_cum:
-        def lerp_point(i):
-            """前後の実測累積点(億)から i 番目の時刻の点数を見積もる"""
-            lo = max((j for j in found if j <= i), default=None)
-            hi = min((j for j in found if j >= i), default=None)
-            a = p_cum[times[lo]] if lo is not None else None
-            bq = p_cum[times[hi]] if hi is not None else None
-            if a is not None and bq is not None and lo != hi:
-                v = a + (bq - a) * (i - lo) / (hi - lo)
-            else:
-                v = a if a is not None else bq
-            return v * 1e8
-
-        def one3(i):
-            return i, find_user_deep(raid, date, times[i], uid, lerp_point(i))
-        with ThreadPoolExecutor(max_workers=6) as ex:
-            take(list(ex.map(one3, rest)))
+    # 取れなかった時刻は「その1時間は稼ぎ0」として直前の値を引き継ぐ。
+    # 表や折れ線に「—」が並ぶのを防ぐ(時速は差分0なので自動的に0.0になる)
+    last_c = last_r = None
+    for t in times:
+        if t in p_cum:
+            last_c, last_r = p_cum[t], p_rank.get(t)
+        elif last_c is not None:
+            p_cum[t] = last_c
+            if last_r is not None:
+                p_rank[t] = last_r
 
     def speed(cum):
         sp, prev = {}, None
@@ -1030,7 +1020,7 @@ def koran_hourly(raid, date, uid, hint=3000, hint_start=None):
                 sp[t] = round(cum[t] - prev, 1) if prev is not None else None
                 prev = cum[t]
         return sp
-    return {"times": times, "labels": [f"{int(t.split(':')[0]) % 24}時" for t in times],
+    return {"times": times, "labels": [f"{int(t.split(':')[0])}時" for t in times],
             "player": {"cum": p_cum, "rank": p_rank, "speed": speed(p_cum)},
             "b2000": {"cum": b2000, "speed": speed(b2000)},
             "b100k": {"cum": b100k, "speed": speed(b100k)}}
@@ -1146,7 +1136,7 @@ def api_koran(q):
             do, date = item
             hint = (ev.get(do) or ev.get(do - 1) or {}).get("rank") or 3000
             hs = (ev.get(do - 1) or {}).get("rank")     # 前日終了順位=その日の開始順位
-            return do, date, koran_hourly(raid, date, uid, hint, hint_start=hs)
+            return do, date, koran_hourly(raid, date, uid, hint, hint_start=hs, day_of=do)
         keys, labels, p_cum, p_rank, b2, b1 = [], [], {}, {}, {}, {}
         with ThreadPoolExecutor(max_workers=4) as ex:
             for do, date, h in ex.map(one_day, days):
@@ -1155,7 +1145,7 @@ def api_koran(q):
                     if not (t in h["player"]["cum"] or t in h["b2000"]["cum"] or t in h["b100k"]["cum"]):
                         continue
                     keys.append(key)
-                    labels.append(f"{KORAN_LABELS.get(do, do)} {int(t.split(':')[0]) % 24}時")
+                    labels.append(f"{KORAN_LABELS.get(do, do)} {int(t.split(':')[0])}時")
                     if t in h["player"]["cum"]:
                         p_cum[key] = h["player"]["cum"][t]
                         p_rank[key] = h["player"]["rank"].get(t)
@@ -1186,7 +1176,8 @@ def api_koran(q):
         sched = {s["day"]: s["day_of"] for s in meta_for(raid)["schedules"]}
         do = sched.get(day)
         hint = (ev.get(do) or {}).get("rank") or 3000
-        h = koran_hourly(raid, day, uid, hint, hint_start=(ev.get(do - 1) or {}).get("rank"))
+        h = koran_hourly(raid, day, uid, hint,
+                         hint_start=(ev.get(do - 1) or {}).get("rank"), day_of=do)
         if not h["times"]:
             return {"error": "この日の時刻毎データはgbfdataに未収録です"}
         cur_h = {"player": h["player"]["cum"], "b2000": h["b2000"]["cum"], "b100k": h["b100k"]["cum"]}
@@ -1246,12 +1237,15 @@ def _prewarm_once(m, raid, members):
     """先読み1回分。members に渡した団員の履歴だけ取得する"""
     oh = guild_histories(OURS_GID)                     # ①自団の日別実績
     get(f"{GBF}/users/borders?raid_number={raid}", ttl=900)   # ②英雄(2000位)/10万位ボーダー(全期間の時刻毎を含む)
+    # ③個ランの全期間(1H)は走査量が多く開くと待たされるので、本人ぶんを最優先で温める
+    #   (全員ぶん毎時やるとgbfdataへの負荷が高いので本人に限定)
+    _prewarm_koran_all(m, raid, OURS_UID)
     for r in range(raid - 1, raid - 7, -1):            # 直近6回の着地(過去回は確定値なので長期キャッシュ)
         if r > 0:
             get(f"{GBF}/users/borders?raid_number={r}", ttl=21600)
-    for _, uid in members:                             # ③団員の個人履歴
+    for _, uid in members:                             # ④団員の個人履歴
         user_histories(uid)
-    # ④開催中は当日の推移も(本戦=自団の時刻毎 / 予選=300位ボーダーと自団)
+    # ⑤開催中は当日の推移も(本戦=自団の時刻毎 / 予選=300位ボーダーと自団)
     today = gbf_today()
     do = {sc["day"]: sc["day_of"] for sc in m["schedules"]}.get(today)
     if do and do >= 4:
@@ -1262,6 +1256,26 @@ def _prewarm_once(m, raid, members):
         for t in _snapshot_times(raid, today):
             rankings_page(raid, today, 300, t, per_page=1)
             find_guild(raid, today, t, gid=OURS_GID, name=OURS_NAME, hint=120, max_pages=12)
+
+
+def _prewarm_koran_all(m, raid, uid):
+    """個ラン全期間で使う時刻毎データを先読みする。api_koran と同じ経路を通すので
+    ユーザーが開いたときはキャッシュ命中で返る。
+    この間に取得したURLは _pinned に入れ、他の団員を検索しても押し出されないようにする"""
+    global _pin_on
+    hist = user_histories(uid)
+    ev = {r["day_of"]: r for r in hist if r["raid_number"] == raid}
+    with _cache_lock:
+        _pinned.clear()          # 前回ぶんは作り直す(同じURLを取り直すので取りこぼさない)
+    _pin_on = True
+    try:
+        for sc in sorted(m["schedules"], key=lambda s: s["day_of"]):
+            do = sc["day_of"]
+            hint = (ev.get(do) or ev.get(do - 1) or {}).get("rank") or 3000
+            koran_hourly(raid, sc["day"], uid, hint,
+                         hint_start=(ev.get(do - 1) or {}).get("rank"), day_of=do)
+    finally:
+        _pin_on = False
 
 
 def prewarm_loop():

@@ -27,6 +27,21 @@ OURS_GID = 1147615
 OPP_FILE = "/Applications/gbf/honsen_opponent.txt"
 HOURS = [f"{h:02d}:00" for h in range(8, 24)] + ["24:00"]
 
+# 団員(霞桜団)のGN/ユーザーID。個ランでの名前検索(users/search)を省いて即取得できる
+# 出典: 団員貢献度DBスプレッドシート(2026-07-30時点の30名)
+MEMBERS = [
+    ("Laphis", 3052899), ("明蓮", 2090466), ("ibls", 2722700),
+    ("ノイン", 8884374), ("ジーク", 4148920), ("Yamato", 1240007),
+    ("クラシック１", 3767386), ("えりゅ", 10408332), ("ぎのこ", 3136402),
+    ("とくこ", 4984108), ("Ryan", 10219632), ("きぃ", 929001),
+    ("はりま", 204160), ("幼女新撰組", 9727079), ("nao", 12607435),
+    ("藤城真香", 27769761), ("さくらえび", 7628906), ("カノン", 16101483),
+    ("だよだよめん", 6710599), ("すなっ", 3557547), ("ジータ", 34524668),
+    ("D.N", 2569839), ("ルルフォン", 1490546), ("ねろそーす", 3740709),
+    ("紅蘭", 16483149), ("皇杞枢", 22967234), ("しびー", 23600641),
+    ("風色幻想", 25557296), ("レン", 12275867), ("じゅりこ", 38776098),
+]
+
 _cache = {}
 _cache_lock = threading.Lock()
 
@@ -48,11 +63,24 @@ def get(url, ttl=180):
     return data
 
 
+def gbf_today():
+    """古戦場の「今日」(JST・5時未満はまだ前日扱い)"""
+    now = datetime.now(timezone(timedelta(hours=9)))
+    if now.hour < 5:
+        now -= timedelta(days=1)
+    return now.date().isoformat()
+
+
+def day_ttl(date):
+    """確定した過去日のランキングは変化しないので長期キャッシュ(6時間)。当日は短め"""
+    return 21600 if (date and date < gbf_today()) else 180
+
+
 def rankings_page(raid, date, rank, time_=None, per_page=50):
     q = {"raid_number": raid, "day": date, "rank": max(1, rank), "per_page": per_page}
     if time_:
         q["time"] = time_
-    d = get(f"{GBF}/guilds/rankings?" + urllib.parse.urlencode(q))
+    d = get(f"{GBF}/guilds/rankings?" + urllib.parse.urlencode(q), ttl=day_ttl(date))
     return (d or {}).get("data") or []
 
 
@@ -174,7 +202,8 @@ def api_config(q):
     rset |= {r for r in (m["raid"], m["latest"]) if r}
     raids = sorted(rset, reverse=True)
     return {"ours": OURS_NAME, "opponent": opp, "raid": m["raid"], "latest": m["latest"],
-            "raids": raids, "schedules": m["schedules"]}
+            "raids": raids, "schedules": m["schedules"],
+            "members": [{"name": n, "uid": u} for n, u in MEMBERS]}
 
 
 def ratio_winprob(r, k=3.5):
@@ -794,7 +823,7 @@ def user_search(q):
 def user_histories(uid, pages=6):
     rows = []
     for pg in range(1, pages + 1):
-        d = get(f"{GBF}/users/{uid}/histories?page={pg}", ttl=300)
+        d = get(f"{GBF}/users/{uid}/histories?page={pg}", ttl=1800)
         data = (d or {}).get("data") or []
         rows += data
         if not (d or {}).get("meta", {}).get("has_next"):
@@ -805,7 +834,7 @@ def user_histories(uid, pages=6):
 def user_border_days(raid):
     """個人ボーダー rank:2000/100000 の day_of別 日終了累積(億)。pointは通算累積。
     {target_rank: {day_of: 億}}"""
-    d = get(f"{GBF}/users/borders?raid_number={raid}", ttl=300)
+    d = get(f"{GBF}/users/borders?raid_number={raid}", ttl=900)
     out = {}
     for s in (d or {}).get("data") or []:
         by = {}
@@ -819,7 +848,7 @@ def user_border_days(raid):
 
 def user_border_hourly(raid, date):
     """個人ボーダー rank:2000/100000 の指定日の時刻毎累積(億)。{target_rank: {time: 億}}"""
-    d = get(f"{GBF}/users/borders?raid_number={raid}", ttl=300)
+    d = get(f"{GBF}/users/borders?raid_number={raid}", ttl=900)
     out = {2000: {}, 100000: {}}
     for s in (d or {}).get("data") or []:
         tr = s.get("target_rank")
@@ -835,7 +864,7 @@ def user_rankings_page(raid, date, rank, time_=None, per_page=200):
     q = {"raid_number": raid, "day": date, "rank": max(1, rank), "per_page": per_page}
     if time_:
         q["time"] = time_
-    d = get(f"{GBF}/users/rankings?" + urllib.parse.urlencode(q))
+    d = get(f"{GBF}/users/rankings?" + urllib.parse.urlencode(q), ttl=day_ttl(date))
     return (d or {}).get("data") or []
 
 
@@ -1082,6 +1111,30 @@ def api_koran(q):
             "past3": koran_past3(uid, raid, hist), "confirmed": confirmed}
 
 
+
+
+def prewarm_loop():
+    """gbfdataは毎時更新。更新直後に主要データを先読みしてキャッシュに載せ、
+    ユーザーが開いたときの待ち時間を減らす(毎時4分に実行)。"""
+    while True:
+        try:
+            now = datetime.now(timezone(timedelta(hours=9)))
+            nxt = now.replace(minute=4, second=0, microsecond=0)
+            if nxt <= now:
+                nxt += timedelta(hours=1)
+            time.sleep(max(30, (nxt - now).total_seconds()))
+            m = meta_for()
+            raid = m.get("raid")
+            if not raid:
+                continue
+            guild_histories(OURS_GID)                      # 自団の日別実績
+            get(f"{GBF}/users/borders?raid_number={raid}", ttl=900)   # 個人ボーダー
+            for _, uid in MEMBERS:                          # 団員の個人履歴
+                user_histories(uid)
+        except Exception:
+            time.sleep(60)
+
+
 ROUTES = {"/api/config": api_config, "/api/live": api_live,
           "/api/scout": api_scout, "/api/yosen": api_yosen, "/api/koran": api_koran,
           "/api/scout_speed": api_scout_speed}
@@ -1130,4 +1183,5 @@ class Handler(BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     print(f"グラブル古戦場サポート  →  http://localhost:{PORT}")
+    threading.Thread(target=prewarm_loop, daemon=True).start()
     ThreadingHTTPServer(("0.0.0.0", PORT), Handler).serve_forever()

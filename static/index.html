@@ -672,8 +672,8 @@ async function loadKoran(){
   const Lx=d.rows.map(r=>r.label);
   mkChart('#kCum','line',Lx,[
     {label:d.name,data:d.rows.map(r=>r.player),borderColor:'#378ADD',backgroundColor:'#378ADD',tension:0.2,borderWidth:2.5,pointRadius:3},
-    ...(s2?[{label:'英雄(2000位)',data:d.rows.map(r=>r.b2000),borderColor:'#D85A30',borderDash:[5,4],tension:0.2,borderWidth:2,pointRadius:0}]:[]),
-    ...(s1?[{label:'10万位',data:d.rows.map(r=>r.b100k),borderColor:'#1D9E75',borderDash:[5,4],tension:0.2,borderWidth:2,pointRadius:0}]:[])
+    ...(s2?[{label:'英雄(2000位)',data:d.rows.map(r=>r.b2000),borderColor:'#D85A30',tension:0.2,borderWidth:2,pointRadius:0}]:[]),
+    ...(s1?[{label:'10万位',data:d.rows.map(r=>r.b100k),borderColor:'#1D9E75',tension:0.2,borderWidth:2,pointRadius:0}]:[])
   ]);
 }
 // 個ランの自動更新(ライブと同じ: 毎時3分＋3分おき再試行)
@@ -728,13 +728,13 @@ function koranHourlyView(d){
     ${koranPast3Html(d.past3,s2,s1,d.name)}`;
   mkChart('#kCumH','line',Lx,[
     {label:d.name,data:T.map(t=>pc[t]??null),borderColor:'#378ADD',backgroundColor:'#378ADD',tension:0.2,borderWidth:2.5,pointRadius:2,spanGaps:true},
-    ...(s2?[{label:'英雄(2000位)',data:T.map(t=>b2[t]??null),borderColor:'#D85A30',borderDash:[5,4],tension:0.2,borderWidth:2,pointRadius:0,spanGaps:true}]:[]),
-    ...(s1?[{label:'10万位',data:T.map(t=>b1[t]??null),borderColor:'#1D9E75',borderDash:[5,4],tension:0.2,borderWidth:2,pointRadius:0,spanGaps:true}]:[])
+    ...(s2?[{label:'英雄(2000位)',data:T.map(t=>b2[t]??null),borderColor:'#D85A30',tension:0.2,borderWidth:2,pointRadius:0,spanGaps:true}]:[]),
+    ...(s1?[{label:'10万位',data:T.map(t=>b1[t]??null),borderColor:'#1D9E75',tension:0.2,borderWidth:2,pointRadius:0,spanGaps:true}]:[])
   ]);
   mkChart('#kSpdH','line',Lx,[
     {label:d.name,data:T.map(t=>psp[t]??null),borderColor:'#378ADD',tension:0.2,borderWidth:2,pointRadius:2,spanGaps:true},
-    ...(s2?[{label:'英雄(2000位)',data:T.map(t=>b2s[t]??null),borderColor:'#D85A30',borderDash:[5,4],tension:0.2,borderWidth:1.5,pointRadius:0,spanGaps:true}]:[]),
-    ...(s1?[{label:'10万位',data:T.map(t=>b1s[t]??null),borderColor:'#1D9E75',borderDash:[5,4],tension:0.2,borderWidth:1.5,pointRadius:0,spanGaps:true}]:[])
+    ...(s2?[{label:'英雄(2000位)',data:T.map(t=>b2s[t]??null),borderColor:'#D85A30',tension:0.2,borderWidth:1.5,pointRadius:0,spanGaps:true}]:[]),
+    ...(s1?[{label:'10万位',data:T.map(t=>b1s[t]??null),borderColor:'#1D9E75',tension:0.2,borderWidth:1.5,pointRadius:0,spanGaps:true}]:[])
   ]);
 }
 init();

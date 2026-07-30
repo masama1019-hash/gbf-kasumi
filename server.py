@@ -575,9 +575,12 @@ def api_scout(q):
     raids = sorted({x["raid_number"] for x in rows}, reverse=True)
     events = [e for e in (event_summary(r) for r in raids[:6]) if e]
 
-    # 過去3回(現開催除く) 本戦日毎平均
-    past = [e for e in events if e["raid"] != raid][:3]
-    pv = [v for e in past for do, v in e["daily"].items() if do >= 4]
+    # 勝率の基準: 直近3開催(現開催含む・両団に本戦データがある回)の本戦日毎平均
+    h_raids = sorted({x["raid_number"] for x in rows if x["day_of"] >= 4}
+                     & {x["raid_number"] for x in ours_rows if x["day_of"] >= 4},
+                     reverse=True)[:3]
+    pv = [x["today_point"] / 1e8 for x in rows
+          if x["raid_number"] in h_raids and x["day_of"] >= 4]
     past_avg = round(sum(pv) / len(pv), 1) if pv else None
 
     # 自団との比較
@@ -591,7 +594,7 @@ def api_scout(q):
                         "opp": round(opp_ev[do]["today_point"] / 1e8, 1) if do in opp_ev else None})
 
     ours_pv = [x["today_point"] / 1e8 for x in ours_rows
-               if x["raid_number"] in [e["raid"] for e in past] and x["day_of"] >= 4]
+               if x["raid_number"] in h_raids and x["day_of"] >= 4]
     ours_avg = round(sum(ours_pv) / len(ours_pv), 1) if ours_pv else None
     winrate = None
     if past_avg and ours_avg:

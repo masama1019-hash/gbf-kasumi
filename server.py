@@ -44,10 +44,21 @@ MEMBERS = [
 
 _cache = {}
 _cache_lock = threading.Lock()
+CACHE_MAX = 400          # エントリ数上限(超えたら古い順に捨てる)。無料512MB枠を守るため
 
 
-def get(url, ttl=180):
-    """GET with in-memory TTL cache."""
+def _cache_put(url, now, data):
+    """保存時に期限切れを掃除し、上限を超えたら古い順に削除(メモリ肥大の防止)"""
+    with _cache_lock:
+        _cache[url] = (now, data)
+        if len(_cache) > CACHE_MAX:
+            for k in sorted(_cache, key=lambda k: _cache[k][0])[:len(_cache) - CACHE_MAX]:
+                _cache.pop(k, None)
+
+
+def get(url, ttl=180, slim=None):
+    """GET with in-memory TTL cache.
+    slim: レスポンスを保存前に間引く関数(巨大なランキングJSONをそのまま持たない)"""
     now = time.time()
     with _cache_lock:
         hit = _cache.get(url)
@@ -58,8 +69,12 @@ def get(url, ttl=180):
         data = json.loads(urllib.request.urlopen(req, timeout=25).read())
     except Exception:
         return None
-    with _cache_lock:
-        _cache[url] = (now, data)
+    if slim:
+        try:
+            data = slim(data)
+        except Exception:
+            pass
+    _cache_put(url, now, data)
     return data
 
 
@@ -72,15 +87,24 @@ def gbf_today():
 
 
 def day_ttl(date):
-    """確定した過去日のランキングは変化しないので長期キャッシュ(6時間)。当日は短め"""
-    return 21600 if (date and date < gbf_today()) else 180
+    """確定した過去日のランキングは変化しないので長期キャッシュ(2時間)。当日は短め"""
+    return 7200 if (date and date < gbf_today()) else 180
+
+
+def _slim_guilds(d):
+    """キャッシュ保存前に必要項目だけ残す(1件38KB→大幅圧縮)"""
+    return {"data": [{"guild_id": x.get("guild_id"), "name": x.get("name"),
+                      "point": x.get("point"), "rank": x.get("rank")}
+                     for x in (d or {}).get("data") or []],
+            "snapshots": (d or {}).get("snapshots") or []}
 
 
 def rankings_page(raid, date, rank, time_=None, per_page=50):
     q = {"raid_number": raid, "day": date, "rank": max(1, rank), "per_page": per_page}
     if time_:
         q["time"] = time_
-    d = get(f"{GBF}/guilds/rankings?" + urllib.parse.urlencode(q), ttl=day_ttl(date))
+    d = get(f"{GBF}/guilds/rankings?" + urllib.parse.urlencode(q),
+            ttl=day_ttl(date), slim=_slim_guilds)
     return (d or {}).get("data") or []
 
 
@@ -831,10 +855,19 @@ def user_histories(uid, pages=6):
     return rows
 
 
+def border_ttl(raid):
+    """個人ボーダー: 現開催は15分、終了した過去回は確定値なので6時間キャッシュ"""
+    try:
+        lt = meta_for().get("latest")
+    except Exception:
+        lt = None
+    return 900 if (not lt or raid >= lt) else 21600
+
+
 def user_border_days(raid):
     """個人ボーダー rank:2000/100000 の day_of別 日終了累積(億)。pointは通算累積。
     {target_rank: {day_of: 億}}"""
-    d = get(f"{GBF}/users/borders?raid_number={raid}", ttl=900)
+    d = get(f"{GBF}/users/borders?raid_number={raid}", ttl=border_ttl(raid))
     out = {}
     for s in (d or {}).get("data") or []:
         by = {}
@@ -848,7 +881,7 @@ def user_border_days(raid):
 
 def user_border_hourly(raid, date):
     """個人ボーダー rank:2000/100000 の指定日の時刻毎累積(億)。{target_rank: {time: 億}}"""
-    d = get(f"{GBF}/users/borders?raid_number={raid}", ttl=900)
+    d = get(f"{GBF}/users/borders?raid_number={raid}", ttl=border_ttl(raid))
     out = {2000: {}, 100000: {}}
     for s in (d or {}).get("data") or []:
         tr = s.get("target_rank")
@@ -860,19 +893,27 @@ def user_border_hourly(raid, date):
     return out
 
 
-def user_rankings_page(raid, date, rank, time_=None, per_page=200):
+def _slim_users(d):
+    return {"data": [{"user_id": x.get("user_id"), "name": x.get("name"),
+                      "point": x.get("point"), "rank": x.get("rank"),
+                      "hourly_point": x.get("hourly_point")}
+                     for x in (d or {}).get("data") or []]}
+
+
+def user_rankings_page(raid, date, rank, time_=None, per_page=100):
     q = {"raid_number": raid, "day": date, "rank": max(1, rank), "per_page": per_page}
     if time_:
         q["time"] = time_
-    d = get(f"{GBF}/users/rankings?" + urllib.parse.urlencode(q), ttl=day_ttl(date))
+    d = get(f"{GBF}/users/rankings?" + urllib.parse.urlencode(q),
+            ttl=day_ttl(date), slim=_slim_users)
     return (d or {}).get("data") or []
 
 
 def find_user(raid, date, time_, uid, hint=3000, max_pages=40):
     """個人rankingsから uid を探す(hint近傍→外側へ拡張)。(point億, rank, hourly_point) or None"""
-    base = ((hint - 1) // 200) * 200 + 1
+    base = ((hint - 1) // 100) * 100 + 1
     order, tried = [base], set()
-    for dd in range(200, 20000, 200):
+    for dd in range(100, 20000, 100):
         order += [base + dd, base - dd]
     for s in order:
         if s < 1 or s > 300000 or s in tried:
@@ -986,15 +1027,21 @@ def api_koran(q):
     if re.fullmatch(r"\d{4,10}", query):
         uid = int(query)
     else:
-        cands = user_search(query)
-        if not cands:
-            return {"error": f"「{query}」が見つかりません。名前を正確に入力するか、ユーザーIDで指定してください"}
-        if len(cands) > 1:
-            return {"candidates": [{"user_id": c["user_id"], "name": c.get("name"),
-                                    "rank": (c.get("ranking") or {}).get("rank"),
-                                    "point": round(((c.get("ranking") or {}).get("point") or 0) / 1e8, 1)}
-                                   for c in cands[:30]]}
-        uid, pname = cands[0]["user_id"], cands[0].get("name")
+        # 団員名なら登録済みIDで即解決(users/search を省いて高速化)
+        hit = next((u for n, u in MEMBERS if n == query), None) \
+            or next((u for n, u in MEMBERS if n.lower() == query.lower()), None)
+        if hit:
+            uid, pname = hit, next(n for n, u in MEMBERS if u == hit)
+        else:
+            cands = user_search(query)
+            if not cands:
+                return {"error": f"「{query}」が見つかりません。名前を正確に入力するか、ユーザーIDで指定してください"}
+            if len(cands) > 1:
+                return {"candidates": [{"user_id": c["user_id"], "name": c.get("name"),
+                                        "rank": (c.get("ranking") or {}).get("rank"),
+                                        "point": round(((c.get("ranking") or {}).get("point") or 0) / 1e8, 1)}
+                                       for c in cands[:30]]}
+            uid, pname = cands[0]["user_id"], cands[0].get("name")
 
     hist = user_histories(uid)
     ev = {r["day_of"]: r for r in hist if r["raid_number"] == raid}
@@ -1113,9 +1160,40 @@ def api_koran(q):
 
 
 
+def _prewarm_once(m, raid, members):
+    """先読み1回分。members に渡した団員の履歴だけ取得する"""
+    oh = guild_histories(OURS_GID)                     # ①自団の日別実績
+    get(f"{GBF}/users/borders?raid_number={raid}", ttl=900)   # ②英雄(2000位)/10万位ボーダー(全期間の時刻毎を含む)
+    for r in range(raid - 1, raid - 7, -1):            # 直近6回の着地(過去回は確定値なので長期キャッシュ)
+        if r > 0:
+            get(f"{GBF}/users/borders?raid_number={r}", ttl=21600)
+    for _, uid in members:                             # ③団員の個人履歴
+        user_histories(uid)
+    # ④開催中は当日の推移も(本戦=自団の時刻毎 / 予選=300位ボーダーと自団)
+    today = gbf_today()
+    do = {sc["day"]: sc["day_of"] for sc in m["schedules"]}.get(today)
+    if do and do >= 4:
+        hint = next((x["rank"] for x in oh
+                     if x["raid_number"] == raid and x["day_of"] == do - 1), 250)
+        hourly_series(raid, today, day_base(oh, raid, today), OURS_GID, hint)
+    elif do in (1, 2):
+        for t in _snapshot_times(raid, today):
+            rankings_page(raid, today, 300, t, per_page=1)
+            find_guild(raid, today, t, gid=OURS_GID, name=OURS_NAME, hint=120, max_pages=12)
+
+
 def prewarm_loop():
     """gbfdataは毎時更新。更新直後に主要データを先読みしてキャッシュに載せ、
-    ユーザーが開いたときの待ち時間を減らす(毎時4分に実行)。"""
+    ユーザーが開いたときの待ち時間を減らす。
+    起動直後に団員全員ぶんを温め、以降は毎時4分に6名ずつローテーション
+    (30名を毎時取り直すとgbfdataへの負荷が高いため)。"""
+    idx = 0
+    try:                                               # 起動直後: 全員ぶんを1回
+        m0 = meta_for()
+        if m0.get("raid"):
+            _prewarm_once(m0, m0["raid"], MEMBERS)
+    except Exception:
+        pass
     while True:
         try:
             now = datetime.now(timezone(timedelta(hours=9)))
@@ -1127,10 +1205,9 @@ def prewarm_loop():
             raid = m.get("raid")
             if not raid:
                 continue
-            guild_histories(OURS_GID)                      # 自団の日別実績
-            get(f"{GBF}/users/borders?raid_number={raid}", ttl=900)   # 個人ボーダー
-            for _, uid in MEMBERS:                          # 団員の個人履歴
-                user_histories(uid)
+            batch = MEMBERS[idx:idx + 6] or MEMBERS[:6]
+            idx = (idx + 6) % len(MEMBERS)
+            _prewarm_once(m, raid, batch)
         except Exception:
             time.sleep(60)
 

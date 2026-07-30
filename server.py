@@ -587,7 +587,7 @@ def api_scout(q):
     ours_ev = {x["day_of"]: x for x in ours_rows if x["raid_number"] == raid}
     opp_ev = {x["day_of"]: x for x in rows if x["raid_number"] == raid}
     compare = []
-    lbl = {1: "予選1", 2: "予選2", 3: "IB", 4: "本戦1", 5: "本戦2", 6: "本戦3", 7: "本戦4"}
+    lbl = {1: "予選1日目", 2: "予選2日目", 3: "インターバル", 4: "本戦1日目", 5: "本戦2日目", 6: "本戦3日目", 7: "本戦4日目"}
     for do in sorted(set(ours_ev) | set(opp_ev)):
         compare.append({"label": lbl.get(do, str(do)),
                         "ours": round(ours_ev[do]["today_point"] / 1e8, 1) if do in ours_ev else None,
@@ -783,7 +783,7 @@ def api_yosen(q):
 
 
 # ---------- 個人ランキング(個ラン) ----------
-KORAN_LABELS = {1: "予選1", 2: "予選2", 3: "中間", 4: "本戦1", 5: "本戦2", 6: "本戦3", 7: "本戦4"}
+KORAN_LABELS = {1: "予選1日目", 2: "予選2日目", 3: "インターバル", 4: "本戦1日目", 5: "本戦2日目", 6: "本戦3日目", 7: "本戦4日目"}
 
 
 def user_search(q):
@@ -978,8 +978,52 @@ def api_koran(q):
     _today = (datetime.now(timezone.utc) + timedelta(hours=9)).date().isoformat()
     confirmed = (raid < (_m.get("latest") or raid)) or bool(_last and _today > _last)
 
-    # 時刻毎モード(対象日が指定された場合): その日の 本人 vs 2000位/10万位 を1H毎に
     day = (q.get("day", [""])[0] or "").strip()
+
+    # 全期間モード: 予選1日目〜本戦4日目を通した時刻毎の連続タイムライン
+    if day == "all":
+        sc = sorted(meta_for(raid)["schedules"], key=lambda s: s["day_of"])
+        days = [(s["day_of"], s["day"]) for s in sc]
+
+        def one_day(item):
+            do, date = item
+            hint = (ev.get(do) or ev.get(do - 1) or {}).get("rank") or 3000
+            return do, date, koran_hourly(raid, date, uid, hint)
+        keys, labels, p_cum, p_rank, b2, b1 = [], [], {}, {}, {}, {}
+        with ThreadPoolExecutor(max_workers=4) as ex:
+            for do, date, h in ex.map(one_day, days):
+                for t in h["times"]:
+                    key = f"{date} {t}"
+                    if not (t in h["player"]["cum"] or t in h["b2000"]["cum"] or t in h["b100k"]["cum"]):
+                        continue
+                    keys.append(key)
+                    labels.append(f"{KORAN_LABELS.get(do, do)} {int(t.split(':')[0]) % 24}時")
+                    if t in h["player"]["cum"]:
+                        p_cum[key] = h["player"]["cum"][t]
+                        p_rank[key] = h["player"]["rank"].get(t)
+                    if t in h["b2000"]["cum"]:
+                        b2[key] = h["b2000"]["cum"][t]
+                    if t in h["b100k"]["cum"]:
+                        b1[key] = h["b100k"]["cum"][t]
+        if not keys:
+            return {"error": "この回の時刻毎データはgbfdataに未収録です"}
+
+        def sp_of(cum):
+            sp, prev = {}, None
+            for k in keys:
+                if k in cum:
+                    sp[k] = round(cum[k] - prev, 1) if prev is not None else None
+                    prev = cum[k]
+            return sp
+        return {"mode": "all", "name": pname, "user_id": uid, "raid": raid,
+                "url": f"https://gbfdata.com/user/{uid}", "confirmed": confirmed,
+                "keys": keys, "labels": labels,
+                "player": {"cum": p_cum, "rank": p_rank, "speed": sp_of(p_cum)},
+                "b2000": {"cum": b2, "speed": sp_of(b2)},
+                "b100k": {"cum": b1, "speed": sp_of(b1)},
+                "past3": koran_past3(uid, raid, hist)}
+
+    # 時刻毎モード(対象日が指定された場合): その日の 本人 vs 2000位/10万位 を1H毎に
     if day:
         sched = {s["day"]: s["day_of"] for s in meta_for(raid)["schedules"]}
         do = sched.get(day)

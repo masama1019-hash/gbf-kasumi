@@ -1,0 +1,14 @@
+# ログ・ローカル運用ファイル(デプロイ不要)
+*.log
+ngrok*.log
+tunnel.log
+server.log
+autostart.log
+launchagent.log
+__pycache__/
+DEPLOY_README.md
+autostart.sh
+share.sh
+RENDER_DEPLOY.md
+.DS_Store
+**/.DS_Store

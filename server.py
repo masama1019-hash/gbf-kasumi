@@ -947,7 +947,7 @@ def find_user(raid, date, time_, uid, hint=3000, max_pages=12):
     return None
 
 
-def koran_hourly(raid, date, uid, hint=3000, hint_start=None, day_of=None):
+def koran_hourly(raid, date, uid, hint=3000, hint_start=None, day_of=None, base_cum=None):
     """指定日の 本人 と 2000位/100000位 の時刻毎累積・時速(億)。
     2段階で探す: まず均等に5点(アンカー)だけ広めに探し、残りの時刻はその実測順位を
     前後から補間して狭い範囲だけ見る。全時刻を広く走査するより無駄が減り、並列も保てる。"""
@@ -1003,21 +1003,23 @@ def koran_hourly(raid, date, uid, hint=3000, hint_start=None, day_of=None):
     take(scan([i for i in range(n) if i not in found], 6))      # ②残りは補間済みなので狭く
 
     # 取れなかった時刻は「その1時間は稼ぎ0」として直前の値を引き継ぐ。
-    # 表や折れ線に「—」が並ぶのを防ぐ(時速は差分0なので自動的に0.0になる)
-    last_c = last_r = None
+    # 実測がまだ無い先頭は base_cum(前日終了時点の累積。初日は0)で埋めて「—」を出さない
+    last_c, last_r = base_cum, None
     for t in times:
         if t in p_cum:
-            last_c, last_r = p_cum[t], p_rank.get(t)
+            last_c = p_cum[t]
         elif last_c is not None:
             p_cum[t] = last_c
-            if last_r is not None:
-                p_rank[t] = last_r
+        if p_rank.get(t) is not None:      # 順位は累積とは別に引き継ぐ
+            last_r = p_rank[t]
+        elif last_r is not None:
+            p_rank[t] = last_r
 
     def speed(cum):
         sp, prev = {}, None
         for t in times:
             if t in cum:
-                sp[t] = round(cum[t] - prev, 1) if prev is not None else None
+                sp[t] = round(cum[t] - prev, 1) if prev is not None else 0.0
                 prev = cum[t]
         return sp
     return {"times": times, "labels": [f"{int(t.split(':')[0])}時" for t in times],
@@ -1136,7 +1138,9 @@ def api_koran(q):
             do, date = item
             hint = (ev.get(do) or ev.get(do - 1) or {}).get("rank") or 3000
             hs = (ev.get(do - 1) or {}).get("rank")     # 前日終了順位=その日の開始順位
-            return do, date, koran_hourly(raid, date, uid, hint, hint_start=hs, day_of=do)
+            pp = (ev.get(do - 1) or {}).get("point")    # 前日終了時点の累積(初日は0)
+            return do, date, koran_hourly(raid, date, uid, hint, hint_start=hs, day_of=do,
+                                          base_cum=(round(pp / 1e8, 1) if pp else 0.0))
         keys, labels, p_cum, p_rank, b2, b1 = [], [], {}, {}, {}, {}
         with ThreadPoolExecutor(max_workers=4) as ex:
             for do, date, h in ex.map(one_day, days):
@@ -1156,11 +1160,24 @@ def api_koran(q):
         if not keys:
             return {"error": "この回の時刻毎データはgbfdataに未収録です"}
 
+        # 日をまたいで引き継ぐ。丸ごと取れなかった日があっても「—」を出さず、
+        # 実測が始まる前の先頭は0(まだ稼ぎが無い)で埋める
+        lc, lr = 0.0, None
+        for k in keys:
+            if k in p_cum:
+                lc = p_cum[k]
+            else:
+                p_cum[k] = lc
+            if p_rank.get(k) is not None:      # 順位は累積とは別に引き継ぐ
+                lr = p_rank[k]
+            elif lr is not None:
+                p_rank[k] = lr
+
         def sp_of(cum):
             sp, prev = {}, None
             for k in keys:
                 if k in cum:
-                    sp[k] = round(cum[k] - prev, 1) if prev is not None else None
+                    sp[k] = round(cum[k] - prev, 1) if prev is not None else 0.0
                     prev = cum[k]
             return sp
         return {"mode": "all", "name": pname, "user_id": uid, "raid": raid,
@@ -1176,8 +1193,10 @@ def api_koran(q):
         sched = {s["day"]: s["day_of"] for s in meta_for(raid)["schedules"]}
         do = sched.get(day)
         hint = (ev.get(do) or {}).get("rank") or 3000
+        _pp = (ev.get(do - 1) or {}).get("point")   # 前日終了時点の累積(初日は0)
         h = koran_hourly(raid, day, uid, hint,
-                         hint_start=(ev.get(do - 1) or {}).get("rank"), day_of=do)
+                         hint_start=(ev.get(do - 1) or {}).get("rank"), day_of=do,
+                         base_cum=(round(_pp / 1e8, 1) if _pp else 0.0))
         if not h["times"]:
             return {"error": "この日の時刻毎データはgbfdataに未収録です"}
         cur_h = {"player": h["player"]["cum"], "b2000": h["b2000"]["cum"], "b100k": h["b100k"]["cum"]}

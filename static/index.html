@@ -703,8 +703,8 @@ function koranAllView(d){
     <div class="card"><div class="row" style="justify-content:space-between"><div><b style="font-size:16px">${d.name}</b> <a href="${d.url}" target="_blank" style="font-size:12px">gbfdata↗</a> <span style="font-size:12px;color:var(--mut)">全期間 時刻毎（${K.length}時刻）</span></div></div></div>
     ${cards}
     <div class="card"><h2>全期間の累積貢献度（億）— 青=本人${cl?' / '+cl:''}</h2><div class="chartbox" style="height:280px"><canvas id="kAllCum"></canvas></div></div>
-    <div class="card"><h2>全期間の時速（億/h）</h2><div class="chartbox" style="height:280px"><canvas id="kAllSpd"></canvas></div></div>
-    <div class="card"><h2>全期間の時刻毎（数値・億）</h2><div style="overflow-x:auto"><table><tr><th>日程/時刻</th><th>${d.name}</th><th>順位</th><th>時速</th>${s2?'<th>2000位</th><th>差</th>':''}${s1?'<th>10万位</th><th>差</th>':''}</tr>${rows}</table></div></div>
+    <div class="card"><h2>全期間の時速（億・1H）</h2><div class="chartbox" style="height:280px"><canvas id="kAllSpd"></canvas></div></div>
+    <div class="card"><h2>全期間（億単位）</h2><div style="overflow-x:auto"><table><tr><th>日程/時刻</th><th>${d.name}</th><th>順位</th><th>時速</th>${s2?'<th>2000位</th><th>差</th>':''}${s1?'<th>10万位</th><th>差</th>':''}</tr>${rows}</table></div></div>
     ${koranPast3Html(d.past3,s2,s1,d.name)}`;
   const ds=(data,color,w)=>({data,borderColor:color,backgroundColor:color,tension:.25,borderWidth:w,pointRadius:0,spanGaps:true});
   mkChart('#kAllCum','line',L,[

@@ -947,6 +947,33 @@ def find_user(raid, date, time_, uid, hint=3000, max_pages=12):
     return None
 
 
+def find_user_sweep(raid, date, time_, uid, max_rank=60000, chunk=24):
+    """1位から順位帯を総なめして uid を探す(中位以下で順位が読めない時刻用)。
+    find_user はページを1枚ずつ順に見るので枚数が多いと逐次通信で遅くなる。
+    ここは chunk枚ずつ並列に見て、見つかった時点で打ち切る(無駄な通信を出さない)"""
+    starts = range(1, max_rank + 1, PAGE)
+
+    def probe(s):
+        return user_rankings_page(raid, date, s, time_).get(uid)
+
+    batch = []
+    for s in starts:
+        batch.append(s)
+        if len(batch) < chunk:
+            continue
+        with ThreadPoolExecutor(max_workers=8) as ex:
+            for hit in ex.map(probe, batch):
+                if hit and hit[0] is not None and hit[1] is not None:
+                    return round(hit[0] / 1e8, 1), hit[1], hit[2]
+        batch = []
+    if batch:
+        with ThreadPoolExecutor(max_workers=8) as ex:
+            for hit in ex.map(probe, batch):
+                if hit and hit[0] is not None and hit[1] is not None:
+                    return round(hit[0] / 1e8, 1), hit[1], hit[2]
+    return None
+
+
 def koran_hourly(raid, date, uid, hint=3000, hint_start=None, day_of=None,
                  base_cum=None, prev_date=None):
     """指定日の 本人 と 2000位/100000位 の時刻毎累積・時速(億)。
@@ -993,6 +1020,13 @@ def koran_hourly(raid, date, uid, hint=3000, hint_start=None, day_of=None,
         with ThreadPoolExecutor(max_workers=8) as ex:
             return list(ex.map(one, idxs))
 
+    def sweep(idxs):
+        """総なめは内部でも並列化するので、外側は控えめ(同時接続を増やしすぎない)"""
+        def one(i):
+            return i, find_user_sweep(raid, date, times[i], uid)
+        with ThreadPoolExecutor(max_workers=3) as ex:
+            return list(ex.map(one, idxs))
+
     def take(results):
         for i, r in results:
             if r:
@@ -1001,7 +1035,23 @@ def koran_hourly(raid, date, uid, hint=3000, hint_start=None, day_of=None,
 
     anchors = sorted({0, n - 1} | {round(n * k / 4) for k in (1, 2, 3)})
     take(scan([i for i in anchors if 0 <= i < n], 14))          # ①アンカーは広めに
-    take(scan([i for i in range(n) if i not in found], 6))      # ②残りは補間済みなので狭く
+    rest = [i for i in range(n) if i not in found]
+    if rest:
+        take(scan(rest, 8))                        # ②近傍が近いぶんはこれで当たる
+    # ③残りは1位から総なめする。順位は1時間で数万位動くことがあり(急に伸ばすと順位が
+    #   大幅に上がり、その後は他人に抜かれて下がっていく)、近傍からの補間では原理的に
+    #   届かない。ここに来るのは中位以下の団員のみ。
+    #   全時刻を総なめすると遅いので、まず数点だけ総なめして足場を作り、間は補間で埋める
+    #   (足場どうしの間では順位がなめらかに動くので補間が効く)
+    rest = [i for i in range(n) if i not in found]
+    if rest:
+        take(sweep(rest[::max(1, len(rest) // 4)]))
+        rest = [i for i in range(n) if i not in found]
+        if rest:
+            take(scan(rest, 20))
+        rest = [i for i in range(n) if i not in found]
+        if rest:                                   # 最後の取り残しだけ総なめ
+            take(sweep(rest))
 
     # 取れなかった時刻は「その1時間は稼ぎ0」として直前の値を引き継ぐ。
     # 実測がまだ無い先頭は base_cum(前日終了時点の累積。初日は0)で埋めて「—」を出さない

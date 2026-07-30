@@ -100,8 +100,8 @@
       </select>
       <button class="primary" onclick="loadKoran()">検索</button>
     </div>
-    <div style="font-size:11px;color:var(--mut);margin-top:6px">個人貢献度を 英雄ライン(2000位)・10万位ライン と比較。「表示」で概要(日別)か対象日の時刻毎(1H)を選択。名前が複数該当時は一覧から選択。開催回はヘッダーのセレクタで切替。<br>
-      ※個人ランキングについては、順位が低い場合データ取得に時間を要する。または取得不可の場合があります。（順位帯毎に個人を検索しているため）</div>
+    <div style="font-size:11px;color:var(--mut);margin-top:6px">個人貢献度を 英雄ライン(2000位)・10万位ライン と比較。「表示」で概要(日別)か対象日の時刻毎を選択。<br>
+      ※個ランについては順位によってはデータ取得に時間がかかる、または取得不可の場合があります。（順位帯毎に個人を検索しているため）</div>
   </div>
   <div id="koranBody"><div class="load">プレイヤー名かユーザーIDを入れて「検索」</div></div>
 </div>
@@ -183,7 +183,7 @@ function fillKoranDays(){
   const sel=$('#koranDay'); if(!sel) return; sel.innerHTML='';
   const o0=document.createElement('option'); o0.value=''; o0.textContent='概要(日別)'; sel.appendChild(o0);
   (cfg.schedules||[]).slice().sort((a,b)=>a.day_of-b.day_of).forEach(s=>{
-    const o=document.createElement('option'); o.value=s.day; o.textContent=`${KORAN_LBL[s.day_of]||s.day_of} (1H)`; sel.appendChild(o);});
+    const o=document.createElement('option'); o.value=s.day; o.textContent=`${KORAN_LBL[s.day_of]||s.day_of}`; sel.appendChild(o);});
 }
 // 団チャット貼り付け用の文章（例: 9時時点でこちら99.8億(40.2億)　相手14.6億(9.5億)　貢献差85.2億(30.7億)）
 function chatLine(t,o,p,os_,ps_,withSpeed){

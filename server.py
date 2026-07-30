@@ -30,6 +30,7 @@ HOURS = [f"{h:02d}:00" for h in range(8, 24)] + ["24:00"]
 
 # gbfdataが1リクエストで返せる最大件数(1000は不可)。団・個人とも500順位ぶんまとめて見る
 PAGE = 500
+MAX_RANK = 200500   # gbfdataの個人ランキングの深度上限(これ以降はデータが無い)
 
 # 団員(霞桜団)のGN/ユーザーID。個ランでの名前検索(users/search)を省いて即取得できる
 # 出典: 団員貢献度DBスプレッドシート(2026-07-30時点の30名)
@@ -958,67 +959,92 @@ def user_border_hourly(raid, date):
     return out
 
 
-def _slim_users(d):
-    """キャッシュ保存前に user_id → (点数, 順位, 時速) の辞書へ畳む。
-    500件ぶんのdictを抱えずに済んでメモリが数分の一になり、find_user も走査せず直接引ける
-    (このページに名前は不要なので捨てる)"""
-    return {"m": {x["user_id"]: (x.get("point"), x.get("rank"), x.get("hourly_point"))
-                  for x in (d or {}).get("data") or [] if x.get("user_id") is not None}}
-
-
-
-def user_rankings_page(raid, date, rank, time_=None, per_page=PAGE):
-    q = {"raid_number": raid, "day": date, "rank": max(1, rank), "per_page": per_page}
-    if time_:
-        q["time"] = time_
-    d = get(f"{GBF}/users/rankings?" + urllib.parse.urlencode(q),
-            ttl=day_ttl(date), slim=_slim_users)
-    return (d or {}).get("m") or {}
+_ufound = {}      # (raid,date,time,uid) -> 探索結果。ページを覚えるより桁違いに小さく、
+                  # 再表示が即座に返る(500件のdictを持たないのでメモリも減る)
 
 
 def find_user(raid, date, time_, uid, hint=3000, max_pages=12):
     """個人rankingsから uid を探す(hint近傍→外側へ拡張)。(point億, rank, hourly_point) or None
-    1ページ500順位ぶんなので max_pages=12 で hint の前後およそ±3000位をカバーする"""
+    1ページ500順位ぶんなので max_pages=12 で hint の前後およそ±3000位をカバーする。
+    ページは _probe_page で「uidの文字列を含むページだけ解析」する。時刻ごとにURLが
+    変わるためページを覚えても再利用が効かず、解析コストだけが残っていたため"""
+    ck = (raid, date, time_, uid)
+    if ck in _ufound:
+        return _ufound[ck]
     base = ((hint - 1) // PAGE) * PAGE + 1
     order, tried = [base], set()
     for dd in range(PAGE, 40000, PAGE):
         order += [base + dd, base - dd]
     for s in order:
-        if s < 1 or s > 300000 or s in tried:
+        if s < 1 or s > MAX_RANK or s in tried:
             continue
         tried.add(s)
-        hit = user_rankings_page(raid, date, s, time_).get(uid)
-        if hit and hit[0] is not None and hit[1] is not None:
-            return round(hit[0] / 1e8, 1), hit[1], hit[2]
+        hit = _probe_page(raid, date, time_, s, uid)
+        if hit:
+            with _cache_lock:
+                if len(_ufound) > 20000:
+                    _ufound.clear()
+                _ufound[ck] = hit
+            return hit
         if len(tried) >= max_pages:
             break
     return None
 
 
-def find_user_sweep(raid, date, time_, uid, max_rank=60000, chunk=24):
-    """1位から順位帯を総なめして uid を探す(中位以下で順位が読めない時刻用)。
-    find_user はページを1枚ずつ順に見るので枚数が多いと逐次通信で遅くなる。
-    ここは chunk枚ずつ並列に見て、見つかった時点で打ち切る(無駄な通信を出さない)"""
-    starts = range(1, max_rank + 1, PAGE)
+def _probe_page(raid, date, time_, rank, uid):
+    """総なめ1ページぶん。本文を丸ごとJSONにせず、uidの文字列が入っているページだけ解析する。
+    Renderは0.1CPUで、500件×数十ページのJSON解析が支配的なコストになる
+    (実測: json.loads 1.2ms 対 部分一致 0.002ms)。
+    needleは終端文字を付けない=別IDに前方一致して余分に解析することはあっても、
+    取りこぼしは起きない側に倒している"""
+    q = {"raid_number": raid, "day": date, "rank": max(1, rank), "per_page": PAGE}
+    if time_:
+        q["time"] = time_
+    url = f"{GBF}/users/rankings?" + urllib.parse.urlencode(q)
+    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0",
+                                              "Accept": "application/json"})
+    try:
+        raw = urllib.request.urlopen(req, timeout=25).read()
+    except Exception:
+        return None
+    if ('"user_id":%d' % uid).encode() not in raw:
+        return None
+    try:
+        data = (json.loads(raw) or {}).get("data") or []
+    except Exception:
+        return None
+    for x in data:
+        if x.get("user_id") == uid and x.get("point") is not None:
+            return round(x["point"] / 1e8, 1), x["rank"], x.get("hourly_point")
+    return None
+
+
+def find_user_sweep(raid, date, time_, uid, hint=1, chunk=24):
+    """順位が読めない時刻用の総なめ。hint近傍を先に見て外側へ広げ、深度上限まで到達する。
+    find_user はページを1枚ずつ順に見るので枚数が多いと逐次通信で遅い。ここは
+    chunk枚ずつ並列に見て、見つかった時点で打ち切る。
+    _probe_page が本文を丸ごと解析しないので、ページ数を増やしても軽い
+    (下位の団員は10万位付近まで沈むことがあり、上限を60000位にすると取りこぼす)"""
+    base = ((max(1, hint) - 1) // PAGE) * PAGE + 1
+    order, seen = [], set()
+    for s in [base] + [base + d for dd in range(PAGE, MAX_RANK, PAGE) for d in (dd, -dd)]:
+        if 1 <= s <= MAX_RANK and s not in seen:
+            seen.add(s)
+            order.append(s)
 
     def probe(s):
-        return user_rankings_page(raid, date, s, time_).get(uid)
+        return _probe_page(raid, date, time_, s, uid)
 
-    batch = []
-    for s in starts:
-        batch.append(s)
-        if len(batch) < chunk:
-            continue
+    ck = (raid, date, time_, uid)
+    if ck in _ufound:
+        return _ufound[ck]
+    for i in range(0, len(order), chunk):
         with ThreadPoolExecutor(max_workers=8) as ex:
-            for hit in ex.map(probe, batch):
-                if hit and hit[0] is not None and hit[1] is not None:
-                    return round(hit[0] / 1e8, 1), hit[1], hit[2]
-        batch = []
-    if batch:
-        with ThreadPoolExecutor(max_workers=8) as ex:
-            for hit in ex.map(probe, batch):
-                if hit and hit[0] is not None and hit[1] is not None:
-                    return round(hit[0] / 1e8, 1), hit[1], hit[2]
+            for hit in ex.map(probe, order[i:i + chunk]):
+                if hit:                    # _probe_page が億に変換済み(再変換しない)
+                    with _cache_lock:
+                        _ufound[ck] = hit
+                    return hit
     return None
 
 
@@ -1069,9 +1095,11 @@ def koran_hourly(raid, date, uid, hint=3000, hint_start=None, day_of=None,
             return list(ex.map(one, idxs))
 
     def sweep(idxs):
-        """総なめは内部でも並列化するので、外側は控えめ(同時接続を増やしすぎない)"""
+        """総なめは内部でも並列化するので、外側は控えめ(同時接続を増やしすぎない)。
+        起点は履歴由来のhintを渡す。下位の団員は10万位付近まで沈むため、
+        1位から順に見るより近傍から広げた方が圧倒的に速い"""
         def one(i):
-            return i, find_user_sweep(raid, date, times[i], uid)
+            return i, find_user_sweep(raid, date, times[i], uid, hint=max(1, lerp_hint(i)))
         with ThreadPoolExecutor(max_workers=3) as ex:
             return list(ex.map(one, idxs))
 
@@ -1081,22 +1109,26 @@ def koran_hourly(raid, date, uid, hint=3000, hint_start=None, day_of=None,
                 found[i] = r[1]
                 p_cum[times[i]], p_rank[times[i]] = r[0], r[1]
 
-    anchors = sorted({0, n - 1} | {round(n * k / 4) for k in (1, 2, 3)})
-    take(scan([i for i in anchors if 0 <= i < n], 14))          # ①アンカーは広めに
+    anchors = [i for i in sorted({0, n - 1} | {round(n * k / 4) for k in (1, 2, 3)})
+               if 0 <= i < n]
+    take(scan(anchors, 14))                        # ①アンカーは広めに
+    # 履歴由来のhintが当てにならない人(1日で数万位動く中位以下)は、近傍探索を
+    # 何周しても当たらずページ解析だけが積み上がる。当たらないと分かった時点で
+    # 総なめに切り替える(実測: 無駄な解析356ページ→大幅減)
+    if len(found) < 2:
+        take(sweep(anchors))
     rest = [i for i in range(n) if i not in found]
     if rest:
         take(scan(rest, 8))                        # ②近傍が近いぶんはこれで当たる
-    # ③残りは1位から総なめする。順位は1時間で数万位動くことがあり(急に伸ばすと順位が
-    #   大幅に上がり、その後は他人に抜かれて下がっていく)、近傍からの補間では原理的に
-    #   届かない。ここに来るのは中位以下の団員のみ。
-    #   全時刻を総なめすると遅いので、まず数点だけ総なめして足場を作り、間は補間で埋める
-    #   (足場どうしの間では順位がなめらかに動くので補間が効く)
+    # ③残りは総なめ。順位は1時間で数万位動くことがあり(急に伸ばすと順位が大幅に上がり、
+    #   その後は他人に抜かれて下がっていく)、近傍からの補間では原理的に届かない。
+    #   全時刻を総なめすると遅いので、まず数点だけ足場を作り、間は補間で埋める
     rest = [i for i in range(n) if i not in found]
     if rest:
         take(sweep(rest[::max(1, len(rest) // 4)]))
         rest = [i for i in range(n) if i not in found]
         if rest:
-            take(scan(rest, 20))
+            take(scan(rest, 12))
         rest = [i for i in range(n) if i not in found]
         if rest:                                   # 最後の取り残しだけ総なめ
             take(sweep(rest))
@@ -1302,8 +1334,6 @@ def api_koran(q):
     return {"name": pname, "user_id": uid, "url": f"https://gbfdata.com/user/{uid}",
             "raid": raid, "rows": rows, "latest": rows[-1] if rows else None, "proj": proj,
             "past3": koran_past3(uid, raid, hist), "confirmed": confirmed}
-
-
 
 
 def _prewarm_once(m, raid, members):

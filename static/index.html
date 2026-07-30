@@ -711,12 +711,12 @@ function koranAllView(d){
     {label:d.name,...ds(K.map(k=>pc[k]??null),'#378ADD',2.5)},
     ...(s2?[{label:'英雄(2000位)',...ds(K.map(k=>b2[k]??null),'#D85A30',2)}]:[]),
     ...(s1?[{label:'10万位',...ds(K.map(k=>b1[k]??null),'#1D9E75',2)}]:[])
-  ],{scales:{x:{grid:{display:false},ticks:{font:{size:9},maxRotation:60,autoSkip:true,maxTicksLimit:16}},y:{ticks:{font:{size:10}}}}});
+  ],{scales:{x:{grid:{display:false},ticks:{font:{size:10},autoSkip:false,maxRotation:0,callback:(v,i)=>{const d=L[i].split(' ')[0];return (i===0||d!==L[i-1].split(' ')[0])?d:'';}}},y:{ticks:{font:{size:10}}}}});
   mkChart('#kAllSpd','line',L,[
     {label:d.name,...ds(K.map(k=>psp[k]??null),'#378ADD',2.5)},
     ...(s2?[{label:'英雄(2000位)',...ds(K.map(k=>b2s[k]??null),'#D85A30',2)}]:[]),
     ...(s1?[{label:'10万位',...ds(K.map(k=>b1s[k]??null),'#1D9E75',2)}]:[])
-  ],{scales:{x:{grid:{display:false},ticks:{font:{size:9},maxRotation:60,autoSkip:true,maxTicksLimit:16}},y:{ticks:{font:{size:10}}}}});
+  ],{scales:{x:{grid:{display:false},ticks:{font:{size:10},autoSkip:false,maxRotation:0,callback:(v,i)=>{const d=L[i].split(' ')[0];return (i===0||d!==L[i-1].split(' ')[0])?d:'';}}},y:{ticks:{font:{size:10}}}}});
 }
 // 個ランの自動更新(ライブと同じ: 毎時3分＋3分おき再試行)
 let kTimer=null, KORAN_TICK=null, kRetryN=0;

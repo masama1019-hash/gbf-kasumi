@@ -66,7 +66,7 @@
         <option value="9">全本戦日</option>
       </select>
       <button class="primary" onclick="loadLive()">更新</button>
-      <label style="font-size:12px;color:var(--mut)"><input type="checkbox" id="autoRef"> 5分毎自動更新</label>
+      <label style="font-size:12px;color:var(--mut)" title="gbfdataは毎時更新なので、新しい時刻のデータが出たら自動で取り直します"><input type="checkbox" id="autoRef"> 毎時更新に追従</label>
     </div>
   </div>
   <div id="liveBody"><div class="load">「更新」を押すと集計します（初回は30秒ほどかかります）</div></div>
@@ -107,7 +107,7 @@
 const $=s=>document.querySelector(s);
 // 数値を小数点1桁で表示(nullは—)。予選・本戦・スカウト全テーブル/カードで統一
 const f1=x=>(x!=null&&x!=='')?(+x).toFixed(1):'—';
-let charts={}, cfg=null, timer=null;
+let charts={}, cfg=null, timer=null, LAST_TICK=null, retryN=0;
 document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>{
   document.querySelectorAll('.tab').forEach(x=>x.classList.remove('on'));
   b.classList.add('on');
@@ -246,6 +246,7 @@ async function loadYosen(){
   const os=K.map(k=>d.ours.speed[k]??null), bs=K.map(k=>d.border.speed[k]??null);
   const orank=K.map(k=>d.ours.rank[k]??null);
   const li=oc.map((v,i)=>v!=null?i:-1).reduce((a,b)=>Math.max(a,b),-1);
+  LAST_TICK='yosen:'+(li>=0?L[li]:'');
   const lo=li>=0?oc[li]:null, lb=li>=0?bc[li]:null, lr=li>=0?orank[li]:null;
   const diff=(lo!=null&&lb!=null)?lo-lb:null;
   const p=d.prev;
@@ -311,6 +312,7 @@ async function loadLive(){
   const arr=(s,k)=>d.hours.map(h=>s[k][h]??null);
   const oc=arr(d.ours,'cum'), pc=arr(d.opp,'cum'), os=arr(d.ours,'speed'), ps=arr(d.opp,'speed');
   const lastIdx=oc.map((v,i)=>v!=null?i:-1).reduce((a,b)=>Math.max(a,b),-1);
+  LAST_TICK=d.date+':'+(lastIdx>=0?H[lastIdx]:'');
   const lo=lastIdx>=0?oc[lastIdx]:0, lp=lastIdx>=0&&pc[lastIdx]!=null?pc[lastIdx]:null;
   const lead=lp!=null?(lo-lp):null;
   // 前日同時刻比(撤退判断): 直近時刻の値 ÷ 前日(=past配列の最後)の同時刻値
@@ -410,7 +412,29 @@ async function loadLive(){
        y:{reverse:true,ticks:{font:{size:10},callback:v=>v+'位'}}}});
   }
 }
-$('#autoRef').onchange=e=>{ if(timer)clearInterval(timer); if(e.target.checked) timer=setInterval(loadLive,300000); };
+// gbfdataは毎時更新。毎時3分に取り直し、まだ新データが無ければ3分おきに再試行(最大5回)
+function scheduleAutoRefresh(){
+  if(timer){ clearTimeout(timer); timer=null; }
+  if(!$('#autoRef').checked) return;
+  const now=new Date(), next=new Date(now);
+  next.setMinutes(3,0,0);
+  if(next<=now) next.setHours(next.getHours()+1);
+  retryN=0;
+  timer=setTimeout(autoTick, next-now);
+}
+async function autoTick(){
+  timer=null;
+  if(!$('#autoRef').checked) return;
+  const before=LAST_TICK;
+  await ($('#dateSel').value==='yosen'?loadYosen():loadLive());
+  if(LAST_TICK===before && retryN<5){        // まだgbfdataに反映されていない
+    retryN++;
+    timer=setTimeout(autoTick, 180000);
+  }else{
+    scheduleAutoRefresh();                    // 次の毎時へ
+  }
+}
+$('#autoRef').onchange=scheduleAutoRefresh;
 async function loadScout(){
   const q=$('#scoutQ').value.trim(); if(!q)return;
   $('#scoutBody').innerHTML='<div class="load">分析中…(初回は30秒ほど)</div>';
@@ -445,7 +469,7 @@ async function loadScout(){
   const wcls=d.winrate>=55?'good':(d.winrate>=45?'':'bad');
   const P=d.prev_day;
   const cards=`<div class="metrics">
-    ${P?`<div class="metric" style="outline:2px solid var(--blue);outline-offset:-2px"><div class="l">前日貢献度（${P.label}）— マッチング基準</div><div class="v ${P.diff!=null?(P.diff>=0?'good':'bad'):''}">${P.diff!=null?(P.diff>0?'+':'')+f1(P.diff):'—'}<span style="font-size:12px">億</span></div><div class="s">霞桜団 ${f1(P.ours)} / ${d.name} ${f1(P.opp)}</div></div>`:''}
+    ${P?`<div class="metric" style="outline:2px solid var(--blue);outline-offset:-2px"><div class="l">前日貢献度（${P.label}）</div><div class="v ${P.diff!=null?(P.diff>=0?'good':'bad'):''}">${P.diff!=null?(P.diff>0?'+':'')+f1(P.diff):'—'}<span style="font-size:12px">億</span></div><div class="s">霞桜団 ${f1(P.ours)} / ${d.name} ${f1(P.opp)}</div></div>`:''}
     <div class="metric opp"><div class="l">${d.name} 直近総計</div><div class="v">${f1(last.total)}<span style="font-size:12px">億</span></div><div class="s">第${last.raid}回 ${last.final_rank?last.final_rank+'位':''}</div></div>
     <div class="metric opp"><div class="l">相手 本戦日毎平均</div><div class="v">${f1(d.past_avg)}<span style="font-size:12px">億</span></div><div class="s">直近3回の本戦</div></div>
     <div class="metric ours"><div class="l">霞桜団 本戦日毎平均</div><div class="v ${avgDiff!=null?(avgDiff>=0?'good':'bad'):''}">${f1(d.ours_avg)}<span style="font-size:12px">億</span></div><div class="s">${avgDiff!=null?(avgDiff>=0?'+':'')+f1(avgDiff)+'億 差':'同期間'}</div></div>
@@ -480,7 +504,7 @@ async function loadScout(){
     <div class="card"><h2>直近3回の本戦貢献度比較（青=霞桜団 / 赤=${d.name}）</h2><div class="chartbox"><canvas id="scTot"></canvas></div></div>
     <div class="card"><h2>総合順位の推移（直近3開催 予選〜本戦）</h2><div class="chartbox" style="height:220px"><canvas id="scRank"></canvas></div></div>
     <div class="card"><h2>本戦の時速（青=霞桜団 / 赤=${d.name}）</h2><div id="scSpdBox"><div class="load">時速データ取得中…(20秒ほど)</div></div></div>
-    <div class="card"><h2>前日の比較（マッチング基準）</h2><div id="scPrevBox"><div class="load">前日データ取得中…</div></div></div>
+    <div class="card"><h2>前日の比較</h2><div id="scPrevBox"><div class="load">前日データ取得中…</div></div></div>
     <div class="card"><h2>${d.name} の過去実績（億）</h2><div style="overflow-x:auto"><table>
       <tr><th>回</th><th>予選</th><th>本1</th><th>本2</th><th>本3</th><th>本4</th><th>本戦計</th><th>総計</th><th>順位</th><th>霞桜団との差</th></tr>${evRows}</table></div>
       <div style="font-size:11px;color:var(--mut);margin-top:6px">赤字=その回で最も稼いだ本戦日 ／ 差=霞桜団の本戦計 − 相手の本戦計</div></div>`;
@@ -534,7 +558,7 @@ function scoutPrevView(prev,oppName){
   if(prev.mode==='daily'){
     const rows=prev.rows.map(r=>{const df=(r.ours!=null&&r.opp!=null)?r.ours-r.opp:null;
       return `<tr><td>${r.label}</td><td>${f1(r.ours)}</td><td>${f1(r.opp)}</td><td class="${df!=null?(df>=0?'good':'bad'):''}">${df!=null?(df>0?'+':'')+f1(df):'—'}</td></tr>`;}).join('');
-    box.innerHTML=`<div style="font-size:12px;color:var(--mut);margin-bottom:6px">前日＝${prev.label}（本戦1日目のマッチング基準）</div>
+    box.innerHTML=`<div style="font-size:12px;color:var(--mut);margin-bottom:6px">${prev.label}</div>
       <div style="overflow-x:auto"><table><tr><th>日程</th><th>霞桜団</th><th>${oppName}</th><th>差</th></tr>${rows}</table></div>`;
     return;
   }
@@ -544,7 +568,7 @@ function scoutPrevView(prev,oppName){
     return `<tr><td>${t==='24:00'?'24':parseInt(t)}時</td><td>${f1(o)}</td><td style="color:var(--mut)">${f1(os[t])}</td><td>${f1(p)}</td><td style="color:var(--mut)">${f1(ps[t])}</td><td class="${df!=null?(df>=0?'good':'bad'):''}">${df!=null?(df>0?'+':'')+f1(df):'—'}</td></tr>`;}).join('');
   if(!rows){ box.innerHTML='<div style="font-size:12px;color:var(--mut)">前日の時刻毎データはgbfdataに未収録です</div>'; return; }
   const L=T.filter(t=>oc[t]!=null||pc[t]!=null);
-  box.innerHTML=`<div style="font-size:12px;color:var(--mut);margin-bottom:6px">前日＝${prev.label}（当日のマッチング基準）</div>
+  box.innerHTML=`<div style="font-size:12px;color:var(--mut);margin-bottom:6px">${prev.label}</div>
     <div class="chartbox"><canvas id="scPrevCum"></canvas></div>
     <div class="chartbox" style="margin-top:12px"><canvas id="scPrevSpd"></canvas></div>
     <div style="overflow-x:auto;margin-top:12px"><table><tr><th>時刻</th><th>霞桜団</th><th>時速</th><th>${oppName}</th><th>時速</th><th>差</th></tr>${rows}</table></div>`;
@@ -554,8 +578,8 @@ function scoutPrevView(prev,oppName){
     {label:oppName+' 累積',data:L.map(t=>pc[t]??null),borderColor:'#D85A30',backgroundColor:'#D85A30',tension:.3,borderWidth:2.5,pointRadius:2,spanGaps:true}
   ]);
   mkChart('#scPrevSpd','line',lab,[
-    {label:'霞桜団 時速',data:L.map(t=>os[t]??null),borderColor:'#378ADD',backgroundColor:'#378ADD',borderDash:[5,4],tension:.3,borderWidth:2,pointRadius:2,spanGaps:true},
-    {label:oppName+' 時速',data:L.map(t=>ps[t]??null),borderColor:'#D85A30',backgroundColor:'#D85A30',borderDash:[5,4],tension:.3,borderWidth:2,pointRadius:2,spanGaps:true}
+    {label:'霞桜団 時速',data:L.map(t=>os[t]??null),borderColor:'#378ADD',backgroundColor:'#378ADD',tension:.3,borderWidth:2.5,pointRadius:2,spanGaps:true},
+    {label:oppName+' 時速',data:L.map(t=>ps[t]??null),borderColor:'#D85A30',backgroundColor:'#D85A30',tension:.3,borderWidth:2.5,pointRadius:2,spanGaps:true}
   ]);
 }
 let SPD=null;

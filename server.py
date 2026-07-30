@@ -1142,8 +1142,9 @@ def api_koran(q):
     day = (q.get("day", [""])[0] or "").strip()
 
     # 時刻毎モード(対象日が指定された場合): その日の 本人 vs 2000位/10万位 を1H毎に
-    if day:
-        _sc = meta_for(raid)["schedules"]
+    # 日程に無い値(廃止した day=all の古いブックマーク等)は概要(日別)にフォールバック
+    _sc = meta_for(raid)["schedules"]
+    if day and day in {s["day"] for s in _sc}:
         sched = {s["day"]: s["day_of"] for s in _sc}
         do = sched.get(day)
         hint = (ev.get(do) or {}).get("rank") or 3000

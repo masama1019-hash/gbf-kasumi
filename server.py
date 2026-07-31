@@ -1213,9 +1213,17 @@ def koran_past3(uid, raid, hist):
     return out
 
 
-def koran_time_proj(raid, do, uid, hint, cur, times, hist):
+def koran_time_proj(raid, do, uid, hint, cur, times, hist, confirmed=False):
     """時点(最新時刻)での前回比較着地予想。前回開催の同day_of・同時刻に揃えて
-    現時点値 ×(前回最終 ÷ 前回同時点)で予測。cur={key:{time:億}}"""
+    現時点値 ×(前回最終 ÷ 前回同時点)で予測。cur={key:{time:億}}
+    終了した回は予測せず、その回の最終値をそのまま着地として返す
+    (前回開催の個人ボーダーが未収録だと予測できず「—」になってしまうため)"""
+    if confirmed:
+        bd = user_border_days(raid)
+        ev = {x["day_of"]: x for x in hist if x["raid_number"] == raid}
+        return {"prev_raid": None, "time": None,
+                "player": round(ev[max(ev)]["point"] / 1e8, 1) if ev else None,
+                "b2000": _fin(bd.get(2000, {})), "b100k": _fin(bd.get(100000, {}))}
     prev_raid = raid - 1
     pdate = {s["day_of"]: s["day"] for s in meta_for(prev_raid)["schedules"]}.get(do)
     if not pdate:
@@ -1299,7 +1307,7 @@ def api_koran(q):
         if not h["times"]:
             return {"error": "この日の時刻毎データはgbfdataに未収録です"}
         cur_h = {"player": h["player"]["cum"], "b2000": h["b2000"]["cum"], "b100k": h["b100k"]["cum"]}
-        h["proj"] = koran_time_proj(raid, do, uid, hint, cur_h, h["times"], hist)
+        h["proj"] = koran_time_proj(raid, do, uid, hint, cur_h, h["times"], hist, confirmed)
         h["past3"] = koran_past3(uid, raid, hist)
         h.update({"mode": "hourly", "name": pname, "user_id": uid, "raid": raid, "date": day,
                   "label": KORAN_LABELS.get(do, ""), "confirmed": confirmed})
@@ -1334,6 +1342,8 @@ def api_koran(q):
 
     def landing(key):
         c, p = cur[key], prev[key]
+        if confirmed and c:
+            return c[max(c)]            # 終了した回は最終日の値がそのまま着地
         if anchor is None or anchor not in c or not p or anchor not in p or not p[anchor]:
             return None
         pfin = p[max(p)]                # 前回最終

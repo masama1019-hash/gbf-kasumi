@@ -203,6 +203,34 @@ def guild_histories(gid):
     return rows
 
 
+def guild_members(gid, raid=None, day=None):
+    """公開している団の団員一覧と貢献度。非公開の団は404が返るので None。
+    gbfdataの団員一覧は団が公開設定にしている場合のみ登録されている
+    (上位団ほど非公開が多い)。dayを省くとその回の最新日が返る"""
+    q = {}
+    if raid:
+        q["raid_number"] = raid
+    if day:
+        q["day"] = day
+    url = f"{GBF}/guilds/{gid}/members" + ("?" + urllib.parse.urlencode(q) if q else "")
+    d = get(url, ttl=day_ttl(day) if day else 900)
+    if not d:
+        return None
+    rows = []
+    for x in d.get("data") or []:
+        r = x.get("ranking") or {}
+        pt = r.get("point")
+        rows.append({"user_id": x.get("user_id"), "name": x.get("name"),
+                     "point": round(pt / 1e8, 1) if pt is not None else None,
+                     "rank": r.get("rank"), "level": r.get("level")})
+    rows.sort(key=lambda r: (r["point"] is None, -(r["point"] or 0)))
+    known = [r["point"] for r in rows if r["point"] is not None]
+    return {"rows": rows, "context": d.get("ranking_context") or {},
+            "count": len(rows), "ranked": len(known),
+            "total": round(sum(known), 1) if known else None,
+            "top5": round(sum(sorted(known, reverse=True)[:5]), 1) if known else None}
+
+
 def meta_for(raid=None):
     """開催情報(raid番号と日程表)。raid指定で過去回、無指定で最新回。
     古い回はborders APIに日程が無いため自団historiesから再構成する。"""
@@ -753,6 +781,7 @@ def api_scout(q):
             "events": events, "past_avg": past_avg, "ours_avg": ours_avg,
             "winrate": winrate, "win_note": win_note,
             "compare": compare, "cur_do": cur_do, "prev_day": prev_day,
+            "members": guild_members(gid, raid),
             "ours_name": OURS_NAME, "rank_history": rank_history}
 
 

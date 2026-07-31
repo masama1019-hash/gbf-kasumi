@@ -514,6 +514,7 @@ async function loadScout(){
     <div class="card"><h2>総合順位の推移（直近3開催 予選〜本戦）</h2><div class="chartbox" style="height:220px"><canvas id="scRank"></canvas></div></div>
     <div class="card"><h2 id="scSpdTitle">本戦の最高時速（青=霞桜団 / 赤=${d.name}）</h2><div id="scSpdBox"><div class="load">時速データ取得中…(20秒ほど)</div></div></div>
     <div class="card"><h2>前日の比較</h2><div id="scPrevBox"><div class="load">前日データ取得中…</div></div></div>
+    ${scoutMembersHtml(d.members,d.name)}
     <div class="card"><h2>${d.name} の過去実績（億）</h2><div style="overflow-x:auto"><table>
       <tr><th>回</th><th>予選</th><th>本1</th><th>本2</th><th>本3</th><th>本4</th><th>本戦計</th><th>総計</th><th>順位</th><th>霞桜団との差</th></tr>${evRows}</table></div>
       <div style="font-size:11px;color:var(--mut);margin-top:6px">赤字=その回で最も稼いだ本戦日 ／ 差=霞桜団の本戦計 − 相手の本戦計</div></div>`;
@@ -592,6 +593,19 @@ function scoutPrevView(prev,oppName){
   ]);
 }
 let SPD=null;
+function scoutMembersHtml(mv,name){
+  if(!mv) return `<div class="card"><h2>${name} の団員一覧</h2>
+    <div style="font-size:12px;color:var(--mut)">この団は団員一覧を非公開にしています（gbfdataに登録がありません）。上位団ほど非公開の傾向があります。</div></div>`;
+  const ctx=mv.context||{}, lbl=KORAN_LBL[ctx.day_of]||'';
+  const share=(mv.total&&mv.top5)?Math.round(mv.top5/mv.total*100):null;
+  const rows=mv.rows.map((r,i)=>`<tr><td style="color:var(--mut)">${i+1}</td><td>${r.name??'—'}</td>`
+    +`<td>${r.point!=null?f1(r.point):'—'}</td>`
+    +`<td style="color:var(--mut)">${r.rank?r.rank.toLocaleString('ja-JP')+'位':'—'}</td></tr>`).join('');
+  return `<div class="card"><h2>${name} の団員一覧（${lbl}時点・億）</h2>
+    <div style="font-size:12px;color:var(--mut);margin-bottom:8px">${mv.count}人中 ${mv.ranked}人に貢献度の記録あり ／ 合計 ${f1(mv.total)}億${share!=null?` ／ 上位5人で ${f1(mv.top5)}億（全体の${share}%）`:''}</div>
+    <div style="overflow-x:auto"><table><tr><th>団内</th><th>名前</th><th>貢献度</th><th>個人順位</th></tr>${rows}</table></div>
+    <div style="font-size:11px;color:var(--mut);margin-top:6px">貢献度の多い順。記録が無い団員は今回の個人ランキング圏外です。</div></div>`;
+}
 function scoutSpeedTab(mode){
   if(!SPD) return;
   document.querySelectorAll('.minitab').forEach(b=>b.classList.toggle('on', b.dataset.spd===mode));

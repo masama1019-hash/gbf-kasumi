@@ -101,7 +101,8 @@
       <button class="primary" onclick="loadKoran()">検索</button>
     </div>
     <div style="font-size:11px;color:var(--mut);margin-top:6px">個人貢献度を 英雄ライン(2000位)・10万位ライン と比較。「表示」で概要(日別)か対象日の時刻毎を選択。<br>
-      ※個ランについて順位によってはデータ取得に時間がかかる、または取得不可の場合があります。（順位帯毎に個人を検索しているため）</div>
+      ※個ランについて順位によってはデータ取得に時間がかかる、または取得不可の場合があります。（順位帯毎に個人を検索しているため）<br>
+      ※「全期間(1H)」は7日分をまとめて取得するため、順位が低い場合は数分かかります。一度表示すれば以降は即座に出ます。</div>
   </div>
   <div id="koranBody"><div class="load">プレイヤー名かユーザーIDを入れて「検索」</div></div>
 </div>
@@ -186,6 +187,7 @@ function fillKoranDays(){
   const o0=document.createElement('option'); o0.value=''; o0.textContent='概要(日別)'; sel.appendChild(o0);
   (cfg.schedules||[]).slice().sort((a,b)=>a.day_of-b.day_of).forEach(s=>{
     const o=document.createElement('option'); o.value=s.day; o.textContent=`${KORAN_LBL[s.day_of]||s.day_of}`; sel.appendChild(o);});
+  const oa=document.createElement('option'); oa.value='all'; oa.textContent='全期間(1H)'; sel.appendChild(oa);
 }
 // 団チャット貼り付け用の文章（例: 9時時点でこちら99.8億(40.2億)　相手14.6億(9.5億)　貢献差85.2億(30.7億)）
 function chatLine(t,o,p,os_,ps_,withSpeed){
@@ -656,6 +658,7 @@ async function loadKoran(){
     $('#koranBody').innerHTML=`<div class="card"><h2>該当プレイヤーが${d.candidates.length}件 — 現在順位・累積で選択</h2><table><tr><th style="text-align:left">名前</th><th>現順位</th><th>累積</th><th></th></tr>${rows}</table></div>`;
     return;
   }
+  if(d.mode==='all'){ return koranAllView(d); }
   if(d.mode==='hourly'){ return koranHourlyView(d); }
   const tg=$('#koranTgt').value, s2=tg!=='100k', s1=tg!=='2000';
   const L=d.latest||{};
@@ -698,6 +701,47 @@ async function loadKoran(){
     ...(s2?[{label:'英雄(2000位)',data:d.rows.map(r=>r.b2000),borderColor:'#D85A30',tension:0.2,borderWidth:2,pointRadius:0}]:[]),
     ...(s1?[{label:'10万位',data:d.rows.map(r=>r.b100k),borderColor:'#1D9E75',tension:0.2,borderWidth:2,pointRadius:0}]:[])
   ]);
+}
+// 全期間(予選1日目〜本戦4日目)の時刻毎ビュー
+function koranAllView(d){
+  const tg=$('#koranTgt').value, s2=tg!=='100k', s1=tg!=='2000';
+  const K=d.keys, L=d.labels;
+  const pc=d.player.cum, prk=d.player.rank, psp=d.player.speed;
+  const b2=d.b2000.cum, b2s=d.b2000.speed, b1=d.b100k.cum, b1s=d.b100k.speed;
+  const li=[...K].reverse().find(k=>pc[k]!=null);
+  const lk=K[K.length-1];
+  const pv=li!=null?pc[li]:null, v2=lk?b2[lk]:null, v1=lk?b1[lk]:null;
+  const d2=(pv!=null&&v2!=null)?pv-v2:null, d1=(pv!=null&&v1!=null)?pv-v1:null;
+  KORAN_TICK='all:'+(lk||'');
+  const cards=`<div class="metrics">
+    <div class="metric ours"><div class="l">${d.name} 累積貢献度</div><div class="v">${f1(pv)}<span style="font-size:12px">億</span></div><div class="s">${li!=null&&prk[li]?prk[li]+'位':''}（${li?L[K.indexOf(li)]:''}）</div></div>
+    ${s2?`<div class="metric hero"><div class="l">英雄ライン(2000位)</div><div class="v">${f1(v2)}<span style="font-size:12px">億</span></div><div class="s">${d2!=null?(d2>=0?`<span class="good">超え +${f1(d2)}億</span>`:`あと ${f1(-d2)}億`):''}</div></div>`:''}
+    ${s1?`<div class="metric p100k"><div class="l">10万位ライン</div><div class="v">${f1(v1)}<span style="font-size:12px">億</span></div><div class="s">${d1!=null?(d1>=0?`<span class="good">圏内 +${f1(d1)}億</span>`:`<span class="bad">あと ${f1(-d1)}億</span>`):''}</div></div>`:''}
+  </div>`;
+  const dc=v=>`<td class="${v!=null?(v>=0?'good':'bad'):''}">${v!=null?(v>=0?'+':'')+f1(v):'—'}</td>`;
+  const rows=K.map((k,i)=>{const dd2=(pc[k]!=null&&b2[k]!=null)?pc[k]-b2[k]:null, dd1=(pc[k]!=null&&b1[k]!=null)?pc[k]-b1[k]:null;
+    return `<tr><td style="white-space:nowrap">${L[i]}</td><td>${f1(pc[k])}</td><td style="color:var(--mut)">${prk[k]?prk[k]+'位':'—'}</td><td style="color:var(--mut)">${f1(psp[k])}</td>`
+      +(s2?`<td>${f1(b2[k])}</td>${dc(dd2)}`:'')
+      +(s1?`<td>${f1(b1[k])}</td>${dc(dd1)}`:'')+`</tr>`;}).join('');
+  const cl=[s2&&'赤=英雄(2000位)',s1&&'緑=10万位'].filter(Boolean).join(' / ');
+  $('#koranBody').innerHTML=`
+    <div class="card"><div class="row" style="justify-content:space-between"><div><b style="font-size:16px">${d.name}</b> <a href="${d.url}" target="_blank" style="font-size:12px">gbfdata↗</a> <span style="font-size:12px;color:var(--mut)">全期間 時刻毎（${K.length}時刻）</span></div></div></div>
+    ${cards}
+    <div class="card"><h2>全期間の累積貢献度（億）— 青=本人${cl?' / '+cl:''}</h2><div class="chartbox" style="height:280px"><canvas id="kAllCum"></canvas></div></div>
+    <div class="card"><h2>全期間の時速（億・1H）</h2><div class="chartbox" style="height:280px"><canvas id="kAllSpd"></canvas></div></div>
+    <div class="card"><h2>全期間（億単位）</h2><div style="overflow-x:auto"><table><tr><th>日程/時刻</th><th>${d.name}</th><th>順位</th><th>時速</th>${s2?'<th>2000位</th><th>差</th>':''}${s1?'<th>10万位</th><th>差</th>':''}</tr>${rows}</table></div></div>
+    ${koranPast3Html(d.past3,s2,s1,d.name)}`;
+  const ds=(data,color,w)=>({data,borderColor:color,backgroundColor:color,tension:.25,borderWidth:w,pointRadius:0,spanGaps:true});
+  mkChart('#kAllCum','line',L,[
+    {label:d.name,...ds(K.map(k=>pc[k]??null),'#378ADD',2.5)},
+    ...(s2?[{label:'英雄(2000位)',...ds(K.map(k=>b2[k]??null),'#D85A30',2)}]:[]),
+    ...(s1?[{label:'10万位',...ds(K.map(k=>b1[k]??null),'#1D9E75',2)}]:[])
+  ],{scales:{x:{grid:{display:false},ticks:{font:{size:10},autoSkip:false,maxRotation:0,callback:(v,i)=>{const d=L[i].split(' ')[0];return (i===0||d!==L[i-1].split(' ')[0])?d:'';}}},y:{ticks:{font:{size:10}}}}});
+  mkChart('#kAllSpd','line',L,[
+    {label:d.name,...ds(K.map(k=>psp[k]??null),'#378ADD',2.5)},
+    ...(s2?[{label:'英雄(2000位)',...ds(K.map(k=>b2s[k]??null),'#D85A30',2)}]:[]),
+    ...(s1?[{label:'10万位',...ds(K.map(k=>b1s[k]??null),'#1D9E75',2)}]:[])
+  ],{scales:{x:{grid:{display:false},ticks:{font:{size:10},autoSkip:false,maxRotation:0,callback:(v,i)=>{const d=L[i].split(' ')[0];return (i===0||d!==L[i-1].split(' ')[0])?d:'';}}},y:{ticks:{font:{size:10}}}}});
 }
 // 個ランの自動更新(ライブと同じ: 毎時3分＋3分おき再試行)
 let kTimer=null, KORAN_TICK=null, kRetryN=0;

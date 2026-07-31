@@ -1330,8 +1330,70 @@ def api_koran(q):
 
     day = (q.get("day", [""])[0] or "").strip()
 
+    # 全期間モード: 予選1日目〜本戦4日目を通した時刻毎の連続タイムライン
+    if day == "all":
+        scs = sorted(meta_for(raid)["schedules"], key=lambda x: x["day_of"])
+        days = [(x["day_of"], x["day"]) for x in scs]
+
+        def one_day(item):
+            do, date = item
+            hint = (ev.get(do) or ev.get(do - 1) or {}).get("rank") or 3000
+            hs = (ev.get(do - 1) or {}).get("rank")     # 前日終了順位=その日の開始順位
+            pp = (ev.get(do - 1) or {}).get("point")    # 前日終了時点の累積(初日は0)
+            pd = next((x["day"] for x in scs if x["day_of"] == do - 1), None)
+            return do, date, koran_hourly(raid, date, uid, hint, hint_start=hs, day_of=do,
+                                          base_cum=(round(pp / 1e8, 1) if pp else 0.0),
+                                          prev_date=pd)
+        keys, labels, p_cum, p_rank, b2, b1 = [], [], {}, {}, {}, {}
+        with ThreadPoolExecutor(max_workers=4) as ex:
+            for do, date, h in ex.map(one_day, days):
+                for t in h["times"]:
+                    key = f"{date} {t}"
+                    if not (t in h["player"]["cum"] or t in h["b2000"]["cum"] or t in h["b100k"]["cum"]):
+                        continue
+                    keys.append(key)
+                    labels.append(f"{KORAN_LABELS.get(do, do)} {hour_label(t)}")
+                    if t in h["player"]["cum"]:
+                        p_cum[key] = h["player"]["cum"][t]
+                        p_rank[key] = h["player"]["rank"].get(t)
+                    if t in h["b2000"]["cum"]:
+                        b2[key] = h["b2000"]["cum"][t]
+                    if t in h["b100k"]["cum"]:
+                        b1[key] = h["b100k"]["cum"][t]
+        if not keys:
+            return {"error": "この回の時刻毎データはgbfdataに未収録です"}
+
+        # 日をまたいで引き継ぐ。丸ごと取れなかった日があっても「—」を出さず、
+        # 実測が始まる前の先頭は0(まだ稼ぎが無い)で埋める
+        lc, lr = 0.0, None
+        for k in keys:
+            if k in p_cum:
+                lc = p_cum[k]
+            else:
+                p_cum[k] = lc
+            if p_rank.get(k) is not None:      # 順位は累積とは別に引き継ぐ
+                lr = p_rank[k]
+            elif lr is not None:
+                p_rank[k] = lr
+
+        def sp_of(cum):
+            # 通しのタイムラインなので、イベント開始(0)からの増分として先頭も出す
+            sp, prev = {}, 0.0
+            for k in keys:
+                if k in cum:
+                    sp[k] = round(cum[k] - prev, 1)
+                    prev = cum[k]
+            return sp
+        return {"mode": "all", "name": pname, "user_id": uid, "raid": raid,
+                "url": f"https://gbfdata.com/user/{uid}", "confirmed": confirmed,
+                "keys": keys, "labels": labels,
+                "player": {"cum": p_cum, "rank": p_rank, "speed": sp_of(p_cum)},
+                "b2000": {"cum": b2, "speed": sp_of(b2)},
+                "b100k": {"cum": b1, "speed": sp_of(b1)},
+                "past3": koran_past3(uid, raid, hist)}
+
     # 時刻毎モード(対象日が指定された場合): その日の 本人 vs 2000位/10万位 を1H毎に
-    # 日程に無い値(廃止した day=all の古いブックマーク等)は概要(日別)にフォールバック
+    # 日程に無い値は概要(日別)にフォールバック
     _sc = meta_for(raid)["schedules"]
     if day and day in {s["day"] for s in _sc}:
         sched = {s["day"]: s["day_of"] for s in _sc}
@@ -1423,28 +1485,31 @@ def _prewarm_once(m, raid, members):
 
 
 def _prewarm_koran_day(m, raid, uid):
-    """個ランの時刻毎(1H)で最初に開かれる日=当日(開催終了後は最終日)だけを先読みする。
-    全期間モードを廃止したので7日ぶん温める必要はなく、gbfdataへの負荷も約1/7になる。
+    """個ランの時刻毎(1H)を先読みする。全期間(1H)が7日分をまとめて出すので7日ぶん温める。
+    当日を最初に温めてから残りを埋める(開催中に見たいのはまず当日のため)。
+    過去日は day_ttl で長めにキャッシュされるうえ探索結果も _ufound に残るので、
+    2周目以降の実コストは当日ぶんだけになる。
     api_koran と同じ経路を通すので、開いたときはキャッシュ命中で返る。
     この間に取得したURLは _pinned に入れ、他の団員を検索しても押し出されないようにする"""
     global _pin_on
     scs = sorted(m["schedules"], key=lambda s: s["day_of"])
-    today = gbf_today()
-    sc = next((s for s in scs if s["day"] == today), None) or (scs[-1] if scs else None)
-    if not sc:
+    if not scs:
         return
+    today = gbf_today()
+    order = sorted(scs, key=lambda s: (s["day"] != today, -s["day_of"]))
     ev = {r["day_of"]: r for r in user_histories(uid) if r["raid_number"] == raid}
-    do = sc["day_of"]
-    hint = (ev.get(do) or ev.get(do - 1) or {}).get("rank") or 3000
-    pp = (ev.get(do - 1) or {}).get("point")
-    pd = next((s["day"] for s in scs if s["day_of"] == do - 1), None)
     with _cache_lock:
         _pinned.clear()          # 前回ぶんは作り直す(同じURLを取り直すので取りこぼさない)
     _pin_on = True
     try:
-        koran_hourly(raid, sc["day"], uid, hint,
-                     hint_start=(ev.get(do - 1) or {}).get("rank"), day_of=do,
-                     base_cum=(round(pp / 1e8, 1) if pp else 0.0), prev_date=pd)
+        for sc in order:
+            do = sc["day_of"]
+            hint = (ev.get(do) or ev.get(do - 1) or {}).get("rank") or 3000
+            pp = (ev.get(do - 1) or {}).get("point")
+            pd = next((s["day"] for s in scs if s["day_of"] == do - 1), None)
+            koran_hourly(raid, sc["day"], uid, hint,
+                         hint_start=(ev.get(do - 1) or {}).get("rank"), day_of=do,
+                         base_cum=(round(pp / 1e8, 1) if pp else 0.0), prev_date=pd)
     finally:
         _pin_on = False
 

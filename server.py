@@ -255,8 +255,8 @@ def raid_arg(q):
     return int(v) if v.isdigit() else None
 
 
-def hourly_series(raid, date, base_point, gid, hint):
-    """1日分の毎時Day分series {time: 億}。
+def hourly_series(raid, date, base_point, gid, hint, with_rank=False):
+    """1日分の毎時Day分series {time: 億}。with_rank=True なら (series, {time: 順位}) を返す。
     以前は時刻を1つずつ順に見て順位を引き継いでいたが、17時刻ぶんの往復を直列に待つため
     Render(0.1CPU・高レイテンシ)では1日あたり数秒かかっていた。団の順位は1日で大きく動かないので
     同じhintで並列に引き、取れなかった時刻だけ実測値の近傍で引き直す(個ランと同じ考え方)"""
@@ -281,7 +281,8 @@ def hourly_series(raid, date, base_point, gid, hint):
             for t, r in ex.map(retry, miss):
                 if r:
                     out[t] = round((r[0] - base_point) / 1e8, 1)
-    return out
+                    ranks[t] = r[1]
+    return (out, ranks) if with_rank else out
 
 
 def day_base(hist_rows, raid, date):
@@ -836,14 +837,15 @@ def api_scout_speed(q):
         pdate = sched[pdo]
 
         def ser(rows_, g, dflt):
-            return hourly_series(raid, pdate, day_base(rows_, raid, pdate), g, hint_of(rows_, pdo, dflt))
+            return hourly_series(raid, pdate, day_base(rows_, raid, pdate), g,
+                                 hint_of(rows_, pdo, dflt), with_rank=True)
         with ThreadPoolExecutor(max_workers=2) as ex:
             fo = ex.submit(ser, ours_hist, OURS_GID, 250)
             fp = ex.submit(ser, opp_hist, gid, 400)
-            o_ser, p_ser = fo.result(), fp.result()
+            (o_ser, o_rk), (p_ser, p_rk) = fo.result(), fp.result()
         prev = {"mode": "hourly", "label": f"本戦{pdo - 3}日目", "times": HOURS,
-                "ours": {"cum": o_ser, "speed": _speeds(o_ser)},
-                "opp": {"cum": p_ser, "speed": _speeds(p_ser)}}
+                "ours": {"cum": o_ser, "speed": _speeds(o_ser), "rank": o_rk},
+                "opp": {"cum": p_ser, "speed": _speeds(p_ser), "rank": p_rk}}
     elif pdo == 3 or cur_do == 4:
         # 前日=予選: 予選1日目/2日目の日別で比較
         oe = {x["day_of"]: x for x in ours_hist if x["raid_number"] == raid}

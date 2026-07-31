@@ -4,9 +4,12 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>古戦場（霞桜団）</title>
-<!-- お気に入り/タブのアイコン。/favicon.ico をブラウザが自動で取りに来るので
-     link指定は置かない(動作実績のある構成に合わせている)。
-     iOSのホーム画面用の apple-touch-icon だけ明示する -->
+<!-- お気に入り/タブのアイコン。
+     Safariはアイコンを「URL単位」で覚えるため、ファビコン設置前に一度
+     /favicon.ico を404で記録すると、正しいファイルを置いても取り直さない。
+     未使用のURLを指すことで強制的に再取得させる(中身は favicon.ico と同一)。
+     /favicon.ico も残してあるので、link指定を見ないブラウザはそちらを拾う -->
+<link rel="icon" href="/favicon-sakura.ico">
 <link rel="apple-touch-icon" href="/favicon-48.png">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
 <style>

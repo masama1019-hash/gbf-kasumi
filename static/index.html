@@ -178,6 +178,8 @@ async function init(raid){
   fillDates();
   fillKoranDays();
 }
+// 時刻表示: 日をまたいだ25〜30時は 1〜6時 と表す(24:00はそのまま24)
+const hLbl=t=>{const h=parseInt(t);return String(h>24?h-24:h);};
 const KORAN_LBL={1:'予選1日目',2:'予選2日目',3:'インターバル',4:'本戦1日目',5:'本戦2日目',6:'本戦3日目',7:'本戦4日目'};
 function fillKoranDays(){
   const sel=$('#koranDay'); if(!sel) return; sel.innerHTML='';
@@ -257,6 +259,8 @@ async function loadYosen(){
   // 前回を開始時刻(20時)そろえでインデックス整列(今回と前回どちらも同じ予選タイムライン構造)
   const pcum=(side)=>{ if(!p)return[]; const pv=Object.values(p[side].cum);
     return K.map((_,i)=>i<pv.length?pv[i]:null); };
+  const pspd=(side)=>{ if(!p)return[]; const pv=Object.values(p[side].speed||{});
+    return K.map((_,i)=>i<pv.length?pv[i]:null); };
   const pb=pcum('border');
   // 300位ボーダー 今回 vs 前回(同時刻)
   const lpb=(li>=0&&li<pb.length)?pb[li]:null;
@@ -277,8 +281,8 @@ async function loadYosen(){
       ${p?`<div class="metric"><div class="l">300位 前回同時刻比</div><div class="v ${bdiff>0?'bad':'good'}" style="font-size:20px">${bpct!=null?bpct+'%':'—'}</div><div class="s">前回${lpb?.toFixed(1)??'—'}億 / ${bdiff!=null?(bdiff>0?'+':'')+bdiff.toFixed(1)+'億':''}${trendTxt(bpct)}</div></div>`:''}
       ${projFinal!=null?`<div class="metric"><div class="l">300位ボーダー着地予想</div><div class="v">${f1(projFinal)}<span style="font-size:12px">億</span></div><div class="s">前回最終${f1(prevFinal)}億基準${bpct!=null?` / 前回着地比較（同時刻${bpct}%）`:''}</div></div>`:''}
     </div>
-    <div class="card"><h2>累積貢献度（億）— 実線=今回 / 点線=前回(第${d.raid-1}回)</h2><div class="chartbox"><canvas id="yCum"></canvas></div></div>
-    <div class="card"><h2>時速（億/h）</h2><div class="chartbox"><canvas id="ySpd"></canvas></div></div>
+    <div class="card"><h2>累積貢献度（億）— 実線=今回(第${d.raid}回) / 点線=前回(第${d.raid-1}回)</h2><div class="chartbox"><canvas id="yCum"></canvas></div></div>
+    <div class="card"><h2>時速（億/h）— 実線=今回(第${d.raid}回) / 点線=前回(第${d.raid-1}回)</h2><div class="chartbox"><canvas id="ySpd"></canvas></div></div>
     <div class="card"><h2>予選推移（数値・億）</h2><div style="overflow-x:auto"><table><tr><th>時刻</th><th>霞桜団</th><th>順位</th><th>時速</th><th>300位</th><th>時速</th><th>差</th>${p?'<th>前回300位</th><th>前回比</th>':''}</tr>${
       K.map((k,i)=>{const df=(oc[i]!=null&&bc[i]!=null)?oc[i]-bc[i]:null; const bd=(bc[i]!=null&&pb[i]!=null)?bc[i]-pb[i]:null;
         return `<tr><td>${L[i]}</td><td>${f1(oc[i])}</td><td style="color:var(--mut)">${orank[i]?orank[i]+'位':'—'}</td><td style="color:var(--mut)">${f1(os[i])}</td><td>${f1(bc[i])}</td><td style="color:var(--mut)">${f1(bs[i])}</td><td class="${df!=null?(df>=0?'good':'bad'):''}">${df!=null?(df>0?'+':'')+df.toFixed(1):'—'}</td>${p?`<td style="color:var(--mut)">${f1(pb[i])}</td><td class="${bd!=null?(bd>0?'bad':'good'):''}">${bd!=null?(bd>0?'+':'')+bd.toFixed(1):'—'}</td>`:''}</tr>`;}).join('')
@@ -292,7 +296,9 @@ async function loadYosen(){
     ...(projFinal!=null?[{label:'300位着地予想',data:L.map(()=>projFinal),borderColor:'#993C1D',borderDash:[2,3],tension:0,pointRadius:0,borderWidth:1.5}]:[])]);
   mkChart('#ySpd','line',L,[
     {label:'霞桜団時速',data:os,borderColor:'#378ADD',backgroundColor:'#378ADD',tension:.3,pointRadius:0,borderWidth:2,spanGaps:true},
-    {label:'300位時速',data:bs,borderColor:'#D85A30',backgroundColor:'#D85A30',tension:.3,pointRadius:0,borderWidth:2,spanGaps:true}]);
+    {label:'300位時速',data:bs,borderColor:'#D85A30',backgroundColor:'#D85A30',tension:.3,pointRadius:0,borderWidth:2,spanGaps:true},
+    ...(p?[{label:'前回霞桜団時速',data:pspd('ours'),borderColor:'#85B7EB',backgroundColor:'#85B7EB',borderDash:[5,3],tension:.3,pointRadius:0,borderWidth:1.5,spanGaps:true},
+         {label:'前回300位時速',data:pspd('border'),borderColor:'#F0997B',backgroundColor:'#F0997B',borderDash:[5,3],tension:.3,pointRadius:0,borderWidth:1.5,spanGaps:true}]:[])]);
 }
 function pickOpp(gid){ $('#oppInput').value=gid; loadLive(); }
 async function loadLive(){
@@ -312,7 +318,7 @@ async function loadLive(){
       <div style="font-size:12px;color:var(--mut);margin-top:8px">※対戦相手は前日(予選)貢献度が自団と近いはずです。ゲームのマッチング画面の数値と照合してください。</div></div>`;
     return;
   }
-  const H=d.hours.map(h=>h==='24:00'?'24':String(parseInt(h)));
+  const H=d.hours.map(hLbl);
   const arr=(s,k)=>d.hours.map(h=>s[k][h]??null);
   const oc=arr(d.ours,'cum'), pc=arr(d.opp,'cum'), os=arr(d.ours,'speed'), ps=arr(d.opp,'speed');
   const lastIdx=oc.map((v,i)=>v!=null?i:-1).reduce((a,b)=>Math.max(a,b),-1);
@@ -388,7 +394,7 @@ async function loadLive(){
       d.hours.filter(h=>prev.ours.cum[h]!=null||prev.opp.cum[h]!=null).map(h=>{
         const o=prev.ours.cum[h],s=prev.ours.speed[h],p=prev.opp.cum[h],q=prev.opp.speed[h];
         const df=(o!=null&&p!=null)?o-p:null;
-        return `<tr><td>${h==='24:00'?'24':parseInt(h)}時</td><td>${f1(o)}</td><td style="color:var(--mut)">${f1(s)}</td><td>${f1(p)}</td><td style="color:var(--mut)">${f1(q)}</td><td class="${df!=null?(df>=0?'good':'bad'):''}">${df!=null?(df>0?'+':'')+df.toFixed(1):'—'}</td></tr>`;
+        return `<tr><td>${hLbl(h)}時</td><td>${f1(o)}</td><td style="color:var(--mut)">${f1(s)}</td><td>${f1(p)}</td><td style="color:var(--mut)">${f1(q)}</td><td class="${df!=null?(df>=0?'good':'bad'):''}">${df!=null?(df>0?'+':'')+df.toFixed(1):'—'}</td></tr>`;
       }).join('')}</table></div></div>`:''}
     ${chatNoticeHtml(H,oc,pc,os,ps)}`;
   const pastSets=(key)=>(d.past||[]).flatMap(pd=>{
@@ -568,14 +574,14 @@ function scoutPrevView(prev,oppName){
   const T=prev.times, oc=prev.ours.cum, os=prev.ours.speed, pc=prev.opp.cum, ps=prev.opp.speed;
   const rows=T.filter(t=>oc[t]!=null||pc[t]!=null).map(t=>{
     const o=oc[t],p=pc[t],df=(o!=null&&p!=null)?o-p:null;
-    return `<tr><td>${t==='24:00'?'24':parseInt(t)}時</td><td>${f1(o)}</td><td style="color:var(--mut)">${f1(os[t])}</td><td>${f1(p)}</td><td style="color:var(--mut)">${f1(ps[t])}</td><td class="${df!=null?(df>=0?'good':'bad'):''}">${df!=null?(df>0?'+':'')+f1(df):'—'}</td></tr>`;}).join('');
+    return `<tr><td>${hLbl(t)}時</td><td>${f1(o)}</td><td style="color:var(--mut)">${f1(os[t])}</td><td>${f1(p)}</td><td style="color:var(--mut)">${f1(ps[t])}</td><td class="${df!=null?(df>=0?'good':'bad'):''}">${df!=null?(df>0?'+':'')+f1(df):'—'}</td></tr>`;}).join('');
   if(!rows){ box.innerHTML='<div style="font-size:12px;color:var(--mut)">前日の時刻毎データはgbfdataに未収録です</div>'; return; }
   const L=T.filter(t=>oc[t]!=null||pc[t]!=null);
   box.innerHTML=`<div style="font-size:12px;color:var(--mut);margin-bottom:6px">${prev.label}</div>
     <div class="chartbox"><canvas id="scPrevCum"></canvas></div>
     <div class="chartbox" style="margin-top:12px"><canvas id="scPrevSpd"></canvas></div>
     <div style="overflow-x:auto;margin-top:12px"><table><tr><th>時刻</th><th>霞桜団</th><th>時速</th><th>${oppName}</th><th>時速</th><th>差</th></tr>${rows}</table></div>`;
-  const lab=L.map(t=>t==='24:00'?'24':String(parseInt(t)));
+  const lab=L.map(hLbl);
   mkChart('#scPrevCum','line',lab,[
     {label:'霞桜団 累積',data:L.map(t=>oc[t]??null),borderColor:'#378ADD',backgroundColor:'#378ADD',tension:.3,borderWidth:2.5,pointRadius:2,spanGaps:true},
     {label:oppName+' 累積',data:L.map(t=>pc[t]??null),borderColor:'#D85A30',backgroundColor:'#D85A30',tension:.3,borderWidth:2.5,pointRadius:2,spanGaps:true}

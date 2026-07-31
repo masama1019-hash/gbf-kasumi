@@ -32,6 +32,13 @@ HOURS = [f"{h:02d}:00" for h in range(8, 24)] + ["24:00"]
 PAGE = 500
 MAX_RANK = 200500   # gbfdataの個人ランキングの深度上限(これ以降はデータが無い)
 
+
+def hour_label(t):
+    """時刻の表示。日をまたいだ25:00〜30:00は 1時〜6時 と表す(24:00はそのまま24時)。
+    gbfdataは予選の深夜を25:00〜30:00表記で返すが、画面上は実際の時計に合わせる"""
+    h = int(t.split(":")[0])
+    return f"{h - 24 if h > 24 else h}時"
+
 # 団員(霞桜団)のGN/ユーザーID。個ランでの名前検索(users/search)を省いて即取得できる
 # 出典: 団員貢献度DBスプレッドシート(2026-07-30時点の30名)
 MEMBERS = [
@@ -848,7 +855,7 @@ def yosen_series(raid, dates, ours_hint=120):
             times = [t for t in times if int(t.split(":")[0]) <= 24]
         for t in times:
             key = f"{date} {t}"
-            labels.append((key, f"{int(t.split(':')[0])}時"))
+            labels.append((key, hour_label(t)))
             snaps.append((key, date, t, t in real))
 
     def one(item):
@@ -1177,7 +1184,7 @@ def koran_hourly(raid, date, uid, hint=3000, hint_start=None, day_of=None,
         pb = user_border_hourly(raid, prev_date)
         pv2, pv1 = _fin(pb.get(2000, {})), _fin(pb.get(100000, {}))
         pvp = base_cum
-    return {"times": times, "labels": [f"{int(t.split(':')[0])}時" for t in times],
+    return {"times": times, "labels": [hour_label(t) for t in times],
             "player": {"cum": p_cum, "rank": p_rank, "speed": speed(p_cum, pvp)},
             "b2000": {"cum": b2000, "speed": speed(b2000, pv2)},
             "b100k": {"cum": b100k, "speed": speed(b100k, pv1)}}

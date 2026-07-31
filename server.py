@@ -63,6 +63,9 @@ CACHE_MAX = 1200
 _pinned = set()
 PIN_MAX = 600
 NEG_TTL = 600     # 取得失敗(404や一時エラー)を覚えておく秒数。無駄な再取得を防ぐ
+CTYPES = {".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8",
+          ".js": "application/javascript; charset=utf-8", ".json": "application/json; charset=utf-8",
+          ".png": "image/png", ".ico": "image/x-icon", ".svg": "image/svg+xml"}
 _pin_on = False
 
 
@@ -1512,7 +1515,9 @@ class Handler(BaseHTTPRequestHandler):
         path = "/index.html" if parsed.path == "/" else parsed.path
         f = os.path.normpath(os.path.join(STATIC, path.lstrip("/")))
         if f.startswith(STATIC) and os.path.isfile(f):
-            ctype = "text/html; charset=utf-8" if f.endswith(".html") else "application/octet-stream"
+            # 拡張子ごとのContent-Type。既定のoctet-streamのままだとブラウザが
+            # ファビコンを画像として扱わず表示されない
+            ctype = CTYPES.get(os.path.splitext(f)[1].lower(), "application/octet-stream")
             data = open(f, "rb").read()
             self.send_response(200)
             self.send_header("Content-Type", ctype)

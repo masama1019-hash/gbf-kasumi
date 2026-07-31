@@ -701,6 +701,18 @@ def api_scout(q):
     if past_avg and ours_avg:
         winrate = round(100 * ratio_winprob(ours_avg / past_avg))
 
+    # 勝率の補足は%と同じ基準で数える(本戦の各日・直近3開催)。
+    # 総貢献度で数えると予選も含まれ、%(本戦日毎平均)と食い違って見える
+    win_days = tot_days = 0
+    for r in h_raids:
+        oev = {x["day_of"]: x for x in ours_rows if x["raid_number"] == r and x["day_of"] >= 4}
+        pev = {x["day_of"]: x for x in rows if x["raid_number"] == r and x["day_of"] >= 4}
+        for do in sorted(set(oev) & set(pev)):
+            tot_days += 1
+            if oev[do]["today_point"] > pev[do]["today_point"]:
+                win_days += 1
+    win_note = {"raids": len(h_raids), "days": tot_days, "wins": win_days} if tot_days else None
+
     # 本戦中なら「前日」の両団貢献度(マッチング基準の日)
     prev_day = None
     if 4 <= cur_do <= 7:
@@ -732,7 +744,8 @@ def api_scout(q):
 
     return {"name": gname, "gid": gid, "url": f"https://game.granbluefantasy.jp/#guild/detail/{gid}",
             "events": events, "past_avg": past_avg, "ours_avg": ours_avg,
-            "winrate": winrate, "compare": compare, "cur_do": cur_do, "prev_day": prev_day,
+            "winrate": winrate, "win_note": win_note,
+            "compare": compare, "cur_do": cur_do, "prev_day": prev_day,
             "ours_name": OURS_NAME, "rank_history": rank_history}
 
 

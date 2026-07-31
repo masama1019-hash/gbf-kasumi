@@ -44,6 +44,10 @@
   th,td { padding:6px 8px; text-align:right; border-bottom:1px solid #eef0f2; }
   th:first-child,td:first-child { text-align:left; }
   .good { color:var(--green); font-weight:600; } .bad { color:var(--red); font-weight:600; }
+  /* 時速セル。既定は控えめな色にして、その列の最高時速だけ .mx で立たせる。
+     .sp を先に書かないと同じ詳細度で .mx の色が打ち消される */
+  .sp { color:var(--mut); }
+  .mx { color:var(--red); font-weight:700; background:#fdf1e7; border-radius:4px; }
   .load { color:var(--mut); font-size:13px; padding:20px; text-align:center; }
   .hide { display:none; }
   .badge { display:inline-block; padding:3px 10px; border-radius:20px; font-size:12px; font-weight:600; }
@@ -187,6 +191,9 @@ async function init(raid){
 }
 // 時刻表示: 日をまたいだ25〜30時は 1〜6時 と表す(24:00はそのまま24)
 const hLbl=t=>{const h=parseInt(t);return String(h>24?h-24:h);};
+// 時速列の最高値。同値が複数あれば全部に印を付ける
+const mxOf=arr=>{const v=arr.filter(x=>x!=null&&!isNaN(x));return v.length?Math.max(...v):null;};
+const mxCls=(v,m)=>(m!=null&&v!=null&&Math.abs(v-m)<1e-9)?" mx":"";
 const KORAN_LBL={1:'予選1日目',2:'予選2日目',3:'インターバル',4:'本戦1日目',5:'本戦2日目',6:'本戦3日目',7:'本戦4日目'};
 function fillKoranDays(){
   const sel=$('#koranDay'); if(!sel) return; sel.innerHTML='';
@@ -263,6 +270,7 @@ async function loadYosen(){
   const lo=li>=0?oc[li]:null, lb=li>=0?bc[li]:null, lr=li>=0?orank[li]:null;
   const diff=(lo!=null&&lb!=null)?lo-lb:null;
   const p=d.prev;
+  const mxO=mxOf(os), mxB=mxOf(bs);   // 時速のピーク(表で強調する)
   // 前回を開始時刻(20時)そろえでインデックス整列(今回と前回どちらも同じ予選タイムライン構造)
   const pcum=(side)=>{ if(!p)return[]; const pv=Object.values(p[side].cum);
     return K.map((_,i)=>i<pv.length?pv[i]:null); };
@@ -292,7 +300,7 @@ async function loadYosen(){
     <div class="card"><h2>時速（億/h）— 実線=今回(第${d.raid}回) / 点線=前回(第${d.raid-1}回)</h2><div class="chartbox"><canvas id="ySpd"></canvas></div></div>
     <div class="card"><h2>予選推移（数値・億）</h2><div style="overflow-x:auto"><table><tr><th>時刻</th><th>霞桜団</th><th>順位</th><th>時速</th><th>300位</th><th>時速</th><th>差</th>${p?'<th>前回300位</th><th>前回比</th>':''}</tr>${
       K.map((k,i)=>{const df=(oc[i]!=null&&bc[i]!=null)?oc[i]-bc[i]:null; const bd=(bc[i]!=null&&pb[i]!=null)?bc[i]-pb[i]:null;
-        return `<tr><td>${L[i]}</td><td>${f1(oc[i])}</td><td style="color:var(--mut)">${orank[i]?orank[i]+'位':'—'}</td><td style="color:var(--mut)">${f1(os[i])}</td><td>${f1(bc[i])}</td><td style="color:var(--mut)">${f1(bs[i])}</td><td class="${df!=null?(df>=0?'good':'bad'):''}">${df!=null?(df>0?'+':'')+df.toFixed(1):'—'}</td>${p?`<td style="color:var(--mut)">${f1(pb[i])}</td><td class="${bd!=null?(bd>0?'bad':'good'):''}">${bd!=null?(bd>0?'+':'')+bd.toFixed(1):'—'}</td>`:''}</tr>`;}).join('')
+        return `<tr><td>${L[i]}</td><td>${f1(oc[i])}</td><td style="color:var(--mut)">${orank[i]?orank[i]+'位':'—'}</td><td class="sp${mxCls(os[i],mxO)}">${f1(os[i])}</td><td>${f1(bc[i])}</td><td class="sp${mxCls(bs[i],mxB)}">${f1(bs[i])}</td><td class="${df!=null?(df>=0?'good':'bad'):''}">${df!=null?(df>0?'+':'')+df.toFixed(1):'—'}</td>${p?`<td style="color:var(--mut)">${f1(pb[i])}</td><td class="${bd!=null?(bd>0?'bad':'good'):''}">${bd!=null?(bd>0?'+':'')+bd.toFixed(1):'—'}</td>`:''}</tr>`;}).join('')
     }</table></div></div>
     ${chatNoticeYosenHtml(L,oc,bc,os,bs,orank)}`;
   mkChart('#yCum','line',L,[
@@ -368,6 +376,10 @@ async function loadLive(){
   // 相手団ページへのリンク
   const oppUrl=d.opp.gid?`https://game.granbluefantasy.jp/#guild/detail/${d.opp.gid}`:null;
   const oppName=d.opp.name||'相手未設定';
+  // 時速のピーク(表で強調する)。当日と前日それぞれ両団ぶん
+  const mxOs=mxOf(os), mxPs=mxOf(ps);
+  const mxPo=prev?mxOf(Object.values(prev.ours.speed||{})):null;
+  const mxPp=prev?mxOf(Object.values(prev.opp.speed||{})):null;
   const oppNameHtml=oppUrl?`<a href="${oppUrl}" target="_blank" rel="noopener" style="color:var(--blue);text-decoration:none">${oppName} ↗</a>`:oppName;
   // 当日の最高時速(8時は日始からの累積のため除外)
   const peak=(sp,hrs)=>{let mv=null,mh=null;for(let i=1;i<sp.length;i++){if(sp[i]!=null&&(mv==null||sp[i]>mv)){mv=sp[i];mh=hrs[i];}}return{v:mv,h:mh};};
@@ -394,14 +406,14 @@ async function loadLive(){
       H.map((h,i)=>{const o=oc[i],p=pc[i];
         if(o==null&&p==null) return '';
         const df=(o!=null&&p!=null)?o-p:null;
-        return `<tr><td>${h}時</td><td>${f1(o)}</td><td style="color:var(--mut)">${f1(os[i])}</td><td>${f1(p)}</td><td style="color:var(--mut)">${f1(ps[i])}</td><td class="${df!=null?(df>=0?'good':'bad'):''}">${df!=null?(df>0?'+':'')+df.toFixed(1):'—'}</td></tr>`;
+        return `<tr><td>${h}時</td><td>${f1(o)}</td><td class="sp${mxCls(os[i],mxOs)}">${f1(os[i])}</td><td>${f1(p)}</td><td class="sp${mxCls(ps[i],mxPs)}">${f1(ps[i])}</td><td class="${df!=null?(df>=0?'good':'bad'):''}">${df!=null?(df>0?'+':'')+df.toFixed(1):'—'}</td></tr>`;
       }).join('')}</table></div></div>`:''}
     ${prev?`<div class="card"><h2>${prev.label}の推移（数値・億）— 前日</h2><div style="overflow-x:auto"><table>
       <tr><th>時刻</th><th>${d.ours.name}</th><th>時速</th><th>${oppName}</th><th>時速</th><th>差</th></tr>${
       d.hours.filter(h=>prev.ours.cum[h]!=null||prev.opp.cum[h]!=null).map(h=>{
         const o=prev.ours.cum[h],s=prev.ours.speed[h],p=prev.opp.cum[h],q=prev.opp.speed[h];
         const df=(o!=null&&p!=null)?o-p:null;
-        return `<tr><td>${hLbl(h)}時</td><td>${f1(o)}</td><td style="color:var(--mut)">${f1(s)}</td><td>${f1(p)}</td><td style="color:var(--mut)">${f1(q)}</td><td class="${df!=null?(df>=0?'good':'bad'):''}">${df!=null?(df>0?'+':'')+df.toFixed(1):'—'}</td></tr>`;
+        return `<tr><td>${hLbl(h)}時</td><td>${f1(o)}</td><td class="sp${mxCls(s,mxPo)}">${f1(s)}</td><td>${f1(p)}</td><td class="sp${mxCls(q,mxPp)}">${f1(q)}</td><td class="${df!=null?(df>=0?'good':'bad'):''}">${df!=null?(df>0?'+':'')+df.toFixed(1):'—'}</td></tr>`;
       }).join('')}</table></div></div>`:''}
     ${chatNoticeHtml(H,oc,pc,os,ps)}`;
   const pastSets=(key)=>(d.past||[]).flatMap(pd=>{
@@ -582,9 +594,10 @@ function scoutPrevView(prev,oppName){
   const T=prev.times, oc=prev.ours.cum, os=prev.ours.speed, pc=prev.opp.cum, ps=prev.opp.speed;
   const ork=prev.ours.rank||{}, prk=prev.opp.rank||{};
   const rk=v=>v?v.toLocaleString('ja-JP')+'位':'—';
+  const mO=mxOf(T.map(t=>os[t])), mP2=mxOf(T.map(t=>ps[t]));
   const rows=T.filter(t=>oc[t]!=null||pc[t]!=null).map(t=>{
     const o=oc[t],p=pc[t],df=(o!=null&&p!=null)?o-p:null;
-    return `<tr><td>${hLbl(t)}時</td><td>${f1(o)}</td><td style="color:var(--mut)">${rk(ork[t])}</td><td style="color:var(--mut)">${f1(os[t])}</td><td>${f1(p)}</td><td style="color:var(--mut)">${rk(prk[t])}</td><td style="color:var(--mut)">${f1(ps[t])}</td><td class="${df!=null?(df>=0?'good':'bad'):''}">${df!=null?(df>0?'+':'')+f1(df):'—'}</td></tr>`;}).join('');
+    return `<tr><td>${hLbl(t)}時</td><td>${f1(o)}</td><td style="color:var(--mut)">${rk(ork[t])}</td><td class="sp${mxCls(os[t],mO)}">${f1(os[t])}</td><td>${f1(p)}</td><td style="color:var(--mut)">${rk(prk[t])}</td><td class="sp${mxCls(ps[t],mP2)}">${f1(ps[t])}</td><td class="${df!=null?(df>=0?'good':'bad'):''}">${df!=null?(df>0?'+':'')+f1(df):'—'}</td></tr>`;}).join('');
   if(!rows){ box.innerHTML='<div style="font-size:12px;color:var(--mut)">前日の時刻毎データはgbfdataに未収録です</div>'; return; }
   const L=T.filter(t=>oc[t]!=null||pc[t]!=null);
   box.innerHTML=`<div style="font-size:12px;color:var(--mut);margin-bottom:6px">${prev.label}</div>
@@ -743,10 +756,11 @@ function koranHourlyView(d){
     ${s1?`<div class="metric p100k"><div class="l">10万位ライン</div><div class="v">${f1(v1)}<span style="font-size:12px">億</span></div><div class="s">${d1!=null?(d1>=0?`<span class="good">圏内 +${f1(d1)}億</span>`:`<span class="bad">あと ${f1(-d1)}億</span>`):''}</div></div>`:''}
   </div>`;
   const dcell=v=>`<td class="${v!=null?(v>=0?'good':'bad'):''}">${v!=null?(v>=0?'+':'')+f1(v):'—'}</td>`;
+  const mP=mxOf(T.map(t=>psp[t])), m2=mxOf(T.map(t=>b2s[t])), m1=mxOf(T.map(t=>b1s[t]));
   const trows=T.map(t=>{const dd2=(pc[t]!=null&&b2[t]!=null)?pc[t]-b2[t]:null, dd1=(pc[t]!=null&&b1[t]!=null)?pc[t]-b1[t]:null;
-    return `<tr><td>${Lx[T.indexOf(t)]}</td><td>${f1(pc[t])}</td><td style="color:var(--mut)">${prk[t]?prk[t]+'位':'—'}</td><td style="color:var(--mut)">${f1(psp[t])}</td>`
-      +(s2?`<td>${f1(b2[t])}</td><td style="color:var(--mut)">${f1(b2s[t])}</td>${dcell(dd2)}`:'')
-      +(s1?`<td>${f1(b1[t])}</td><td style="color:var(--mut)">${f1(b1s[t])}</td>${dcell(dd1)}`:'')+`</tr>`;}).join('');
+    return `<tr><td>${Lx[T.indexOf(t)]}</td><td>${f1(pc[t])}</td><td style="color:var(--mut)">${prk[t]?prk[t]+'位':'—'}</td><td class="sp${mxCls(psp[t],mP)}">${f1(psp[t])}</td>`
+      +(s2?`<td>${f1(b2[t])}</td><td class="sp${mxCls(b2s[t],m2)}">${f1(b2s[t])}</td>${dcell(dd2)}`:'')
+      +(s1?`<td>${f1(b1[t])}</td><td class="sp${mxCls(b1s[t],m1)}">${f1(b1s[t])}</td>${dcell(dd1)}`:'')+`</tr>`;}).join('');
   const chartLbl=[s2&&'赤=英雄(2000位)',s1&&'緑=10万位'].filter(Boolean).join(' / ');
   $('#koranBody').innerHTML=`
     <div class="card"><div class="row" style="justify-content:space-between"><div><b style="font-size:16px">${d.name}</b> <a href="${d.url}" target="_blank" style="font-size:12px">gbfdata↗</a> <span style="font-size:12px;color:var(--mut)">${d.label} 時刻毎</span></div></div></div>

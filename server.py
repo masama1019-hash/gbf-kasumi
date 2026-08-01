@@ -940,6 +940,52 @@ def yosen_series(raid, dates, ours_hint=120):
             "border": {"cum": b_cum, "speed": speed(b_cum)}}
 
 
+ELEM_JA = {"fire": "火", "water": "水", "earth": "土",
+           "wind": "風", "light": "光", "dark": "闇"}
+WDAY = "月火水木金土日"
+
+
+def yosen_border_history(raid, n=6):
+    """過去n回の予選300位ボーダー(予選最終日の確定値・億)。団チャットの参考用に
+    属性・開催日(曜日つき)・前回からの上昇率も添える。
+    確定した過去回なので day_ttl で長めにキャッシュされ、実質1回しか取りに行かない。
+    上昇率を最古の回にも付けるため、1回多めに取ってから切り詰める"""
+    elems = {}
+    for x in guild_histories(OURS_GID):          # 古い回はmetaに属性が無いので履歴から拾う
+        if x.get("element"):
+            elems.setdefault(x["raid_number"], x["element"])
+
+    def one(r):
+        try:
+            sc = sorted(meta_for(r)["schedules"], key=lambda x: x["day_of"])
+        except Exception:
+            return None
+        ys = [x for x in sc if x["day_of"] in (1, 2)]
+        if not ys:
+            return None
+        rows = rankings_page(r, ys[-1]["day"], 300, per_page=1)
+        if not rows:
+            return None
+        el = next((x.get("element") for x in sc if x.get("element")), None) or elems.get(r)
+        try:
+            d = datetime.strptime(ys[0]["day"], "%Y-%m-%d")
+            when = f"{d.month}/{d.day}({WDAY[d.weekday()]})"
+        except Exception:
+            when = ys[0]["day"]
+        return {"raid": r, "border": round(rows[0]["point"] / 1e8, 1),
+                "element": ELEM_JA.get(el, el), "start": ys[0]["day"], "when": when}
+
+    rs = [r for r in range(raid - 1, raid - 2 - n, -1) if r > 0]
+    with ThreadPoolExecutor(max_workers=7) as ex:
+        got = [x for x in ex.map(one, rs) if x]
+    got.sort(key=lambda x: -x["raid"])
+    for i, x in enumerate(got):                  # 前回(1つ古い回)からの上昇率
+        nxt = got[i + 1] if i + 1 < len(got) else None
+        x["up"] = (round((x["border"] / nxt["border"] - 1) * 100, 1)
+                   if nxt and nxt["border"] else None)
+    return got[:n]
+
+
 def api_yosen(q):
     raid = raid_arg(q) or meta_for()["raid"]
     def yosen_dates(rn):
@@ -953,6 +999,7 @@ def api_yosen(q):
         cur, prev = fc.result(), (fp.result() if fp else None)
     return {"raid": raid, "keys": cur["keys"], "labels": cur["labels"],
             "ours": cur["ours"], "border": cur["border"],
+            "border_history": yosen_border_history(raid),
             "prev": {"labels": prev["labels"], "ours": prev["ours"], "border": prev["border"]} if prev else None}
 
 

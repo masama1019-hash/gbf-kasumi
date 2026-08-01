@@ -213,6 +213,24 @@ function chatLineYosen(t,o,b,os_,bs_,rank,withSpeed){
   if(!withSpeed) return `${t}時点でこちら${f1(o)}億　300ボーダー${f1(b)}億　貢献差${f1(d)}億${rk}`;
   return `${t}時点でこちら${f1(o)}億(${f1(os_)}億)　300ボーダー${f1(b)}億(${f1(bs_)}億)　貢献差${f1(d)}億(${f1(os_-bs_)}億)${rk}`;
 }
+// 予選の参考情報: 過去6回の300位ボーダー(属性・開催日・前回比つき)
+function yosenBorderHistHtml(hist,curBorder){
+  if(!hist||!hist.length) return '';
+  const mx=Math.max(...hist.map(x=>x.border));
+  const rows=hist.map(x=>{
+    const up=x.up!=null?`<td class="${x.up>=0?'bad':'good'}">${x.up>0?'+':''}${x.up.toFixed(1)}%</td>`:'<td>—</td>';
+    return `<tr><td>第${x.raid}回</td><td>${x.element||'—'}</td><td style="color:var(--mut)">${x.when||'—'}</td>`
+      +`<td class="${x.border===mx?'mx':''}">${f1(x.border)}</td>${up}</tr>`;}).join('');
+  const avg=hist.reduce((a,x)=>a+x.border,0)/hist.length;
+  const vs=(curBorder!=null&&avg)?Math.round(curBorder/avg*100):null;
+  return `<div class="card"><h2>参考：過去6回の予選300位ボーダー（億）</h2>
+    <div style="overflow-x:auto"><table>
+      <tr><th>回</th><th>属性</th><th>開催</th><th>300位</th><th>前回比</th></tr>${rows}
+      <tr><td colspan="3" style="color:var(--mut)">6回平均</td><td>${f1(avg)}</td><td>—</td></tr>
+    </table></div>
+    ${vs!=null?`<div style="font-size:12px;color:var(--mut);margin-top:6px">今回の現時点 ${f1(curBorder)}億 は6回平均の ${vs}%。ボーダーは開催ごとに上がる傾向があるので、直近の回との比較が目安になります。</div>`:''}
+  </div>`;
+}
 function chatNoticeYosenHtml(L,oc,bc,os,bs,ranks){
   const lines=[];
   L.forEach((t,i)=>{ if(oc[i]==null||bc[i]==null) return;
@@ -302,6 +320,7 @@ async function loadYosen(){
       K.map((k,i)=>{const df=(oc[i]!=null&&bc[i]!=null)?oc[i]-bc[i]:null; const bd=(bc[i]!=null&&pb[i]!=null)?bc[i]-pb[i]:null;
         return `<tr><td>${L[i]}</td><td>${f1(oc[i])}</td><td style="color:var(--mut)">${orank[i]?orank[i]+'位':'—'}</td><td class="sp${mxCls(os[i],mxO)}">${f1(os[i])}</td><td>${f1(bc[i])}</td><td class="sp${mxCls(bs[i],mxB)}">${f1(bs[i])}</td><td class="${df!=null?(df>=0?'good':'bad'):''}">${df!=null?(df>0?'+':'')+df.toFixed(1):'—'}</td>${p?`<td style="color:var(--mut)">${f1(pb[i])}</td><td class="${bd!=null?(bd>0?'bad':'good'):''}">${bd!=null?(bd>0?'+':'')+bd.toFixed(1):'—'}</td>`:''}</tr>`;}).join('')
     }</table></div></div>
+    ${yosenBorderHistHtml(d.border_history,lb)}
     ${chatNoticeYosenHtml(L,oc,bc,os,bs,orank)}`;
   mkChart('#yCum','line',L,[
     {label:'霞桜団',data:oc,borderColor:'#378ADD',backgroundColor:'#378ADD',tension:.2,pointRadius:0,borderWidth:2.5,spanGaps:true},

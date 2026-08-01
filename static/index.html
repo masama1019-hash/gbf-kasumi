@@ -217,18 +217,24 @@ function chatLineYosen(t,o,b,os_,bs_,rank,withSpeed){
 function yosenBorderHistHtml(hist,curBorder){
   if(!hist||!hist.length) return '';
   const mx=Math.max(...hist.map(x=>x.border));
+  const mxo=Math.max(...hist.map(x=>x.ours??0));
   const rows=hist.map(x=>{
     const up=x.up!=null?`<td class="${x.up>=0?'bad':'good'}">${x.up>0?'+':''}${x.up.toFixed(1)}%</td>`:'<td>—</td>';
+    // 300位ボーダーとの差。プラスなら通過圏内で終えた回
+    const mg=(x.ours!=null)?x.ours-x.border:null;
     return `<tr><td>第${x.raid}回</td><td>${x.element||'—'}</td><td style="color:var(--mut)">${x.when||'—'}</td>`
-      +`<td class="${x.border===mx?'mx':''}">${f1(x.border)}</td>${up}</tr>`;}).join('');
-  const avg=hist.reduce((a,x)=>a+x.border,0)/hist.length;
-  const vs=(curBorder!=null&&avg)?Math.round(curBorder/avg*100):null;
-  return `<div class="card"><h2>参考：過去6回の予選300位ボーダー（億）</h2>
+      +`<td class="${x.border===mx?'mx':''}">${f1(x.border)}</td>${up}`
+      +`<td class="${x.ours===mxo?'mx':''}">${f1(x.ours)}</td>`
+      +`<td style="color:var(--mut)">${x.ours_rank?x.ours_rank+'位':'—'}</td>`
+      +`<td class="${mg!=null?(mg>=0?'good':'bad'):''}">${mg!=null?(mg>0?'+':'')+f1(mg):'—'}</td></tr>`;}).join('');
+  // 比較の相手は平均ではなく直近の回。ボーダーは開催ごとに上がるので平均は目安にならない
+  const prev1=hist[0];
+  const vs=(curBorder!=null&&prev1&&prev1.border)?Math.round(curBorder/prev1.border*100):null;
+  return `<div class="card"><h2>参考：過去6回の予選（億）</h2>
     <div style="overflow-x:auto"><table>
-      <tr><th>回</th><th>属性</th><th>開催</th><th>300位</th><th>前回比</th></tr>${rows}
-      <tr><td colspan="3" style="color:var(--mut)">6回平均</td><td>${f1(avg)}</td><td>—</td></tr>
+      <tr><th>回</th><th>属性</th><th>開催</th><th>300位</th><th>前回比</th><th>霞桜団</th><th>順位</th><th>300位差</th></tr>${rows}
     </table></div>
-    ${vs!=null?`<div style="font-size:12px;color:var(--mut);margin-top:6px">今回の現時点 ${f1(curBorder)}億 は6回平均の ${vs}%。ボーダーは開催ごとに上がる傾向があるので、直近の回との比較が目安になります。</div>`:''}
+    ${vs!=null?`<div style="font-size:12px;color:var(--mut);margin-top:6px">今回の現時点 ${f1(curBorder)}億 は前回（第${prev1.raid}回 ${f1(prev1.border)}億）の ${vs}%。</div>`:''}
   </div>`;
 }
 function chatNoticeYosenHtml(L,oc,bc,os,bs,ranks){

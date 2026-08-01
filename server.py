@@ -940,8 +940,8 @@ def yosen_series(raid, dates, ours_hint=120):
             "border": {"cum": b_cum, "speed": speed(b_cum)}}
 
 
-ELEM_JA = {"fire": "火", "water": "水", "earth": "土",
-           "wind": "風", "light": "光", "dark": "闇"}
+ELEM_JA = {"fire": "火有利", "water": "水有利", "earth": "土有利",
+           "wind": "風有利", "light": "光有利", "dark": "闇有利"}
 WDAY = "月火水木金土日"
 
 
@@ -950,10 +950,13 @@ def yosen_border_history(raid, n=6):
     属性・開催日(曜日つき)・前回からの上昇率も添える。
     確定した過去回なので day_ttl で長めにキャッシュされ、実質1回しか取りに行かない。
     上昇率を最古の回にも付けるため、1回多めに取ってから切り詰める"""
+    gh = guild_histories(OURS_GID)
     elems = {}
-    for x in guild_histories(OURS_GID):          # 古い回はmetaに属性が無いので履歴から拾う
+    for x in gh:                                 # 古い回はmetaに属性が無いので履歴から拾う
         if x.get("element"):
             elems.setdefault(x["raid_number"], x["element"])
+    # 予選終了時点(day_of=2)の自団の順位と累積貢献度
+    ours = {x["raid_number"]: x for x in gh if x["day_of"] == 2}
 
     def one(r):
         try:
@@ -972,8 +975,11 @@ def yosen_border_history(raid, n=6):
             when = f"{d.month}/{d.day}({WDAY[d.weekday()]})"
         except Exception:
             when = ys[0]["day"]
+        o = ours.get(r)
         return {"raid": r, "border": round(rows[0]["point"] / 1e8, 1),
-                "element": ELEM_JA.get(el, el), "start": ys[0]["day"], "when": when}
+                "element": ELEM_JA.get(el, el), "start": ys[0]["day"], "when": when,
+                "ours": round(o["point"] / 1e8, 1) if o else None,
+                "ours_rank": o["rank"] if o else None}
 
     rs = [r for r in range(raid - 1, raid - 2 - n, -1) if r > 0]
     with ThreadPoolExecutor(max_workers=7) as ex:

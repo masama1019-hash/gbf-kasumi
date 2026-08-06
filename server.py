@@ -1174,7 +1174,15 @@ def koran_hourly(raid, date, uid, hint=3000, hint_start=None, day_of=None,
                for x in (b2000, b100k)):
             break
         times.pop()
-    n = max(1, len(times))
+    # 個人ボーダーの時刻毎データが無い回(gbfdataの収録は第82回以降)は探索の
+    # 起点になる時刻が1つも無い。走査しても全て空振りなので空のまま返す
+    # (以前は n=max(1,0)=1 のせいで times[0] を見に行き IndexError になっていた)
+    if not times:
+        return {"times": [], "labels": [],
+                "player": {"cum": {}, "rank": {}, "speed": {}},
+                "b2000": {"cum": {}, "speed": {}},
+                "b100k": {"cum": {}, "speed": {}}}
+    n = len(times)
     p_cum, p_rank, found = {}, {}, {}      # found: 時刻index -> 実測順位
 
     def lerp_hint(i):

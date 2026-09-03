@@ -88,6 +88,8 @@
   button.minitab { padding:6px 14px; font-size:13px; color:var(--mut); cursor:pointer; }
   button.minitab.on { background:var(--blue); color:#fff; border-color:var(--blue); font-weight:600; }
   .chartbox { position:relative; height:240px; }
+  /* カード内に複数のグラフを置くときの小見出し。h2より小さく、凡例チップの上に出す */
+  .subcap { font-size:12.5px; font-weight:600; color:var(--mut); margin:0 0 7px; }
   /* 凡例。Chart.jsの箱ではなく自前のチップで出す。
      実線=今回 / 破線=前回 の線種差まで見せるため */
   .keys { display:flex; flex-wrap:wrap; gap:3px 14px; margin:0 0 7px; padding:0; list-style:none; }
@@ -883,10 +885,12 @@ function scoutPrevView(prev,oppName){
     return `<tr><td>${hLbl(t)}時</td><td>${f1(o)}</td><td style="color:var(--mut)">${rk(ork[t])}</td><td class="sp${mxCls(os[t],mO)}">${f1(os[t])}</td><td>${f1(p)}</td><td style="color:var(--mut)">${rk(prk[t])}</td><td class="sp${mxCls(ps[t],mP2)}">${f1(ps[t])}</td><td class="${df!=null?(df>=0?'good':'bad'):''}">${df!=null?(df>0?'+':'')+f1(df):'—'}</td></tr>`;}).join('');
   if(!rows){ box.innerHTML='<div style="font-size:12px;color:var(--mut)">前日の時刻毎データはgbfdataに未収録です</div>'; return; }
   const L=T.filter(t=>oc[t]!=null||pc[t]!=null);
-  box.innerHTML=`<div style="font-size:12px;color:var(--mut);margin-bottom:6px">${prev.label}</div>
+  box.innerHTML=`<div style="font-size:12px;color:var(--mut);margin-bottom:10px">${prev.label}</div>
+    <div class="subcap">累積貢献度（億）</div>
     <div class="chartbox"><canvas id="scPrevCum"></canvas></div>
-    <div class="chartbox" style="margin-top:12px"><canvas id="scPrevSpd"></canvas></div>
-    <div style="overflow-x:auto;margin-top:12px"><table><tr><th>時刻</th><th>霞桜団</th><th>総合順位</th><th>時速</th><th>${oppName}</th><th>総合順位</th><th>時速</th><th>差</th></tr>${rows}</table></div>`;
+    <div class="subcap" style="margin-top:16px">時速（億/h）</div>
+    <div class="chartbox"><canvas id="scPrevSpd"></canvas></div>
+    <div style="overflow-x:auto;margin-top:16px"><table><tr><th>時刻</th><th>霞桜団</th><th>総合順位</th><th>時速</th><th>${oppName}</th><th>総合順位</th><th>時速</th><th>差</th></tr>${rows}</table></div>`;
   const lab=L.map(hLbl);
   mkChart('#scPrevCum','line',lab,[
     {label:'霞桜団',data:L.map(t=>oc[t]??null),borderColor:'#378ADD',area:'3d',endLabel:true,tension:.35,borderWidth:2,pointRadius:0,spanGaps:true},

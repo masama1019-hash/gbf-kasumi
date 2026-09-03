@@ -39,20 +39,20 @@
   /* ---- 本戦の判断バンド(hero)と数値ストリップ ---- */
   .hero { background:var(--card); border:1px solid #e3e8ee; border-radius:12px;
           box-shadow:0 1px 3px rgba(28,39,51,.07); overflow:hidden; }
-  .heroTop { display:grid; grid-template-columns:auto 1fr auto; gap:16px; align-items:center; padding:15px 18px; }
+  .heroTop { display:grid; grid-template-columns:auto 1fr auto; gap:22px; align-items:center; padding:22px 24px; }
   @media (max-width:620px){ .heroTop { grid-template-columns:1fr; gap:10px; } }
   .heroLead .k, .heroWin .k { font-size:11.5px; color:var(--mut); }
-  .heroLead .v { font-size:32px; font-weight:700; letter-spacing:-.02em; line-height:1.15; }
+  .heroLead .v { font-size:40px; font-weight:700; letter-spacing:-.02em; line-height:1.15; }
   .heroWin { text-align:right; }
-  .heroWin .v { font-size:26px; font-weight:700; letter-spacing:-.02em; }
+  .heroWin .v { font-size:32px; font-weight:700; letter-spacing:-.02em; }
   .heroMid { min-width:0; }
-  .heroMid .st { font-size:13px; font-weight:600; margin-bottom:5px; }
-  .heroMid .sub { font-size:11px; color:var(--mut); margin-top:5px; }
-  .heroAct { border-top:1px solid #e3e8ee; padding:12px 18px; display:flex; gap:11px;
+  .heroMid .st { font-size:14px; font-weight:600; margin-bottom:9px; }
+  .heroMid .sub { font-size:11.5px; color:var(--mut); margin-top:9px; }
+  .heroAct { border-top:1px solid #e3e8ee; padding:15px 24px; display:flex; gap:13px;
              align-items:flex-start; background:var(--bg); }
-  .heroAct .tx { font-size:12.5px; color:var(--mut); line-height:1.6; }
-  .bar { height:6px; border-radius:3px; background:rgba(127,139,153,.16); overflow:hidden; }
-  .bar i { display:block; height:100%; border-radius:3px; }
+  .heroAct .tx { font-size:13px; color:var(--tx); line-height:1.7; }
+  .bar { height:9px; border-radius:5px; background:rgba(127,139,153,.16); overflow:hidden; }
+  .bar i { display:block; height:100%; border-radius:5px; }
   /* 「悪い」を赤にしない。相手団の赤(--red)と見分けが付かないため、記号と語と濃いインクで示す */
   .up { color:var(--green); font-weight:700; }
   .dn { color:var(--tx); font-weight:700; }
@@ -621,7 +621,7 @@ async function loadLive(){
         <div class="heroMid">
           <div class="st">${lead==null?'':(lead>=0?'勝ち越し中':'ビハインド')}${prevLeadTxt?` <span class="k" style="font-weight:400">／ ${prevLeadTxt}</span>`:''}</div>
           <div class="bar"><i style="width:${(lo??0)/mxCum*100}%;background:var(--blue)"></i></div>
-          <div class="bar" style="margin-top:4px"><i style="width:${(lp??0)/mxCum*100}%;background:var(--red)"></i></div>
+          <div class="bar" style="margin-top:6px"><i style="width:${(lp??0)/mxCum*100}%;background:var(--red)"></i></div>
           <div class="sub">${d.ours.name} ${lo?.toFixed(1)??'—'}億 ／ ${oppNameHtml} ${lp?.toFixed(1)??'—'}億　<span style="opacity:.8">${H[lastIdx]??''}時時点</span></div>
         </div>
         ${fcx?`<div class="heroWin"><div class="k">本日勝率予想</div><div class="v">${fcx.win}<span style="font-size:14px;color:var(--mut)">%</span></div>

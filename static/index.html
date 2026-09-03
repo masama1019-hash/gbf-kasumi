@@ -39,6 +39,12 @@
   button.minitab { padding:6px 14px; font-size:13px; color:var(--mut); cursor:pointer; }
   button.minitab.on { background:var(--blue); color:#fff; border-color:var(--blue); font-weight:600; }
   .chartbox { position:relative; height:240px; }
+  /* 凡例。Chart.jsの箱ではなく自前のチップで出す。
+     実線=今回 / 破線=前回 の線種差まで見せるため */
+  .keys { display:flex; flex-wrap:wrap; gap:3px 14px; margin:0 0 7px; padding:0; list-style:none; }
+  .keys li { display:flex; align-items:center; gap:6px; font-size:11.5px; color:var(--mut); }
+  .kl { width:16px; height:3px; border-radius:2px; flex:none; }
+  .kl.dash { height:0; border-top:2px dashed currentColor; border-radius:0; }
   h2 { font-size:14px; color:var(--mut); font-weight:600; margin-bottom:8px; }
   table { width:100%; border-collapse:collapse; font-size:13px; }
   th,td { padding:6px 8px; text-align:right; border-bottom:1px solid #eef0f2; }
@@ -130,12 +136,82 @@ document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>{
   $('#pane-scout').classList.toggle('hide', b.dataset.tab!=='scout');
   $('#pane-koran').classList.toggle('hide', b.dataset.tab!=='koran');
 });
+// 面の塗り。上端を濃く下端を透明に抜く。初回は chartArea がまだ無いので透明を返す
+const areaGrad=(hex,top)=>ctx=>{
+  const a=ctx.chart.chartArea; if(!a) return hex+'00';
+  const g=ctx.chart.ctx.createLinearGradient(0,a.top,0,a.bottom);
+  g.addColorStop(0,hex+top); g.addColorStop(1,hex+'00'); return g;
+};
+// 棒の塗り。下端まで透明にすると低い棒が読めなくなるので b8 で止める
+const barGrad=hex=>ctx=>{
+  const a=ctx.chart.chartArea; if(!a) return hex;
+  const g=ctx.chart.ctx.createLinearGradient(0,a.top,0,a.bottom);
+  g.addColorStop(0,hex); g.addColorStop(1,hex+'b8'); return g;
+};
+// 線の終端に系列名と最終値を直接置く。ds.endLabel を持つ系列だけが対象。
+// 近づいた札は下へ押し分ける
+const endLabelPlugin={id:'endLabel',afterDatasetsDraw(chart){
+  const ctx=chart.ctx, picks=[];
+  chart.data.datasets.forEach((ds,i)=>{
+    if(!ds.endLabel) return;
+    const m=chart.getDatasetMeta(i); if(m.hidden||!m.data.length) return;
+    let j=ds.data.length-1; while(j>=0 && ds.data[j]==null) j--;
+    if(j<0||!m.data[j]) return;
+    picks.push({x:m.data[j].x,y:m.data[j].y,color:ds.borderColor,text:ds.label+' '+ds.data[j]});
+  });
+  picks.sort((a,b)=>a.y-b.y);
+  for(let i=1;i<picks.length;i++) if(picks[i].y-picks[i-1].y<15) picks[i].y=picks[i-1].y+15;
+  picks.forEach(p=>{
+    ctx.save();
+    ctx.fillStyle=p.color;
+    ctx.beginPath(); ctx.arc(p.x,p.y,3.5,0,Math.PI*2); ctx.fill();
+    ctx.font="600 11px -apple-system,'Hiragino Sans',sans-serif";
+    ctx.textAlign='right'; ctx.textBaseline='middle';
+    ctx.fillText(p.text,p.x-8,p.y-9);
+    ctx.restore();
+  });
+}};
+// データセットから凡例チップを組み立て、グラフの直前に差し込む
+function drawKeys(canvas,datasets){
+  const box=canvas.closest('.chartbox'); if(!box) return;
+  let ul=box.previousElementSibling;
+  if(!ul||!ul.classList.contains('keys')){
+    ul=document.createElement('ul'); ul.className='keys';
+    box.parentNode.insertBefore(ul,box);
+  }
+  ul.innerHTML=datasets.map(ds=>{
+    const c=ds.keyColor||ds.borderColor||ds.backgroundColor||'#888';
+    const col=(typeof c==='string')?c:'#888';
+    return ds.borderDash
+      ? `<li style="color:${col}"><span class="kl dash"></span><span style="color:var(--mut)">${ds.label}</span></li>`
+      : `<li><span class="kl" style="background:${col}"></span>${ds.label}</li>`;
+  }).join('');
+}
 function mkChart(id,type,labels,datasets,extra={}){
   if(charts[id]) charts[id].destroy();
-  charts[id]=new Chart($(id),{type,data:{labels,datasets},options:{
+  const el=$(id);
+  // ds.area='3d' のように指定された系列だけ面を塗る(累積グラフの主役のみ)
+  datasets.forEach(ds=>{
+    if(ds.area){ ds.keyColor=ds.borderColor; ds.backgroundColor=areaGrad(ds.borderColor,ds.area); ds.fill=true; }
+    else if(ds.bar){ ds.keyColor=ds.bar; ds.backgroundColor=barGrad(ds.bar); }
+  });
+  drawKeys(el,datasets);
+  charts[id]=new Chart(el,{type,data:{labels,datasets},plugins:[endLabelPlugin],options:{
     responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
-    plugins:{legend:{display:true,labels:{boxWidth:14,font:{size:11}}}},
-    scales:{x:{grid:{display:false},ticks:{font:{size:10}}},y:{ticks:{font:{size:10}}}},...extra}});
+    layout:{padding:{top:10,right:extra.padRight||8}},
+    plugins:{
+      legend:{display:false},                       // 凡例は上のチップで出す
+      tooltip:{backgroundColor:'rgba(24,33,44,.94)',titleColor:'#fff',bodyColor:'#e7edf4',
+        borderColor:'rgba(255,255,255,.14)',borderWidth:1,padding:10,cornerRadius:7,
+        boxWidth:8,boxHeight:8,usePointStyle:true,
+        titleFont:{size:11.5,weight:'600'},bodyFont:{size:12}}
+    },
+    scales:{
+      x:{grid:{display:false},border:{color:'rgba(28,39,51,.10)'},
+         ticks:{color:'#68707a',font:{size:10},maxRotation:0,autoSkipPadding:16}},
+      y:{grid:{color:'rgba(28,39,51,.038)',drawTicks:false},border:{display:false},
+         ticks:{color:'#68707a',font:{size:10},padding:7,maxTicksLimit:4}}
+    },...extra}});
 }
 // 古戦場の「今日」(JST基準・5時未満はまだ前日扱い)
 function gbfToday(){
@@ -320,8 +396,8 @@ async function loadYosen(){
       ${p?`<div class="metric"><div class="l">300位 前回同時刻比</div><div class="v ${bdiff>0?'bad':'good'}" style="font-size:20px">${bpct!=null?bpct+'%':'—'}</div><div class="s">前回${lpb?.toFixed(1)??'—'}億 / ${bdiff!=null?(bdiff>0?'+':'')+bdiff.toFixed(1)+'億':''}${trendTxt(bpct)}</div></div>`:''}
       ${projFinal!=null?`<div class="metric"><div class="l">300位ボーダー着地予想</div><div class="v">${f1(projFinal)}<span style="font-size:12px">億</span></div><div class="s">前回最終${f1(prevFinal)}億基準${bpct!=null?` / 前回着地比較（同時刻${bpct}%）`:''}</div></div>`:''}
     </div>
-    <div class="card"><h2>累積貢献度（億）— 実線=今回(第${d.raid}回) / 点線=前回(第${d.raid-1}回)</h2><div class="chartbox"><canvas id="yCum"></canvas></div></div>
-    <div class="card"><h2>時速（億/h）— 実線=今回(第${d.raid}回) / 点線=前回(第${d.raid-1}回)</h2><div class="chartbox"><canvas id="ySpd"></canvas></div></div>
+    <div class="card"><h2>累積貢献度（億）— 実線=今回(第${d.raid}回) / 破線=前回(第${d.raid-1}回)</h2><div class="chartbox"><canvas id="yCum"></canvas></div></div>
+    <div class="card"><h2>時速（億/h）— 実線=今回(第${d.raid}回) / 破線=前回(第${d.raid-1}回)</h2><div class="chartbox"><canvas id="ySpd"></canvas></div></div>
     <div class="card"><h2>予選推移（数値・億）</h2><div style="overflow-x:auto"><table><tr><th>時刻</th><th>霞桜団</th><th>順位</th><th>時速</th><th>300位</th><th>時速</th><th>差</th>${p?'<th>前回300位</th><th>前回比</th>':''}</tr>${
       K.map((k,i)=>{const df=(oc[i]!=null&&bc[i]!=null)?oc[i]-bc[i]:null; const bd=(bc[i]!=null&&pb[i]!=null)?bc[i]-pb[i]:null;
         return `<tr><td>${L[i]}</td><td>${f1(oc[i])}</td><td style="color:var(--mut)">${orank[i]?orank[i]+'位':'—'}</td><td class="sp${mxCls(os[i],mxO)}">${f1(os[i])}</td><td>${f1(bc[i])}</td><td class="sp${mxCls(bs[i],mxB)}">${f1(bs[i])}</td><td class="${df!=null?(df>=0?'good':'bad'):''}">${df!=null?(df>0?'+':'')+df.toFixed(1):'—'}</td>${p?`<td style="color:var(--mut)">${f1(pb[i])}</td><td class="${bd!=null?(bd>0?'bad':'good'):''}">${bd!=null?(bd>0?'+':'')+bd.toFixed(1):'—'}</td>`:''}</tr>`;}).join('')
@@ -329,16 +405,17 @@ async function loadYosen(){
     ${yosenBorderHistHtml(d.border_history,lb)}
     ${chatNoticeYosenHtml(L,oc,bc,os,bs,orank)}`;
   mkChart('#yCum','line',L,[
-    {label:'霞桜団',data:oc,borderColor:'#378ADD',backgroundColor:'#378ADD',tension:.2,pointRadius:0,borderWidth:2.5,spanGaps:true},
-    {label:'300位',data:bc,borderColor:'#D85A30',backgroundColor:'#D85A30',tension:.2,pointRadius:0,borderWidth:2.5,spanGaps:true},
-    ...(p?[{label:'前回霞桜団',data:pcum('ours'),borderColor:'#85B7EB',backgroundColor:'#85B7EB',borderDash:[5,3],tension:.2,pointRadius:0,borderWidth:1.5,spanGaps:true},
-         {label:'前回300位',data:pcum('border'),borderColor:'#F0997B',backgroundColor:'#F0997B',borderDash:[5,3],tension:.2,pointRadius:0,borderWidth:1.5,spanGaps:true}]:[]),
-    ...(projFinal!=null?[{label:'300位着地予想',data:L.map(()=>projFinal),borderColor:'#993C1D',borderDash:[2,3],tension:0,pointRadius:0,borderWidth:1.5}]:[])]);
+    {label:'霞桜団',data:oc,borderColor:'#378ADD',area:'3d',endLabel:true,tension:.35,pointRadius:0,borderWidth:2,spanGaps:true},
+    {label:'300位',data:bc,borderColor:'#D85A30',area:'33',endLabel:true,tension:.35,pointRadius:0,borderWidth:2,spanGaps:true},
+    ...(p?[{label:'前回 霞桜団',data:pcum('ours'),borderColor:'#378ADD',borderDash:[4,3],tension:.35,pointRadius:0,borderWidth:1.2,spanGaps:true},
+         {label:'前回 300位',data:pcum('border'),borderColor:'#D85A30',borderDash:[4,3],tension:.35,pointRadius:0,borderWidth:1.2,spanGaps:true}]:[]),
+    ...(projFinal!=null?[{label:'300位 着地予想',data:L.map(()=>projFinal),borderColor:'#993C1D',borderDash:[2,3],tension:0,pointRadius:0,borderWidth:1.2}]:[])],
+    {padRight:80});
   mkChart('#ySpd','line',L,[
-    {label:'霞桜団時速',data:os,borderColor:'#378ADD',backgroundColor:'#378ADD',tension:.3,pointRadius:0,borderWidth:2,spanGaps:true},
-    {label:'300位時速',data:bs,borderColor:'#D85A30',backgroundColor:'#D85A30',tension:.3,pointRadius:0,borderWidth:2,spanGaps:true},
-    ...(p?[{label:'前回霞桜団時速',data:pspd('ours'),borderColor:'#85B7EB',backgroundColor:'#85B7EB',borderDash:[5,3],tension:.3,pointRadius:0,borderWidth:1.5,spanGaps:true},
-         {label:'前回300位時速',data:pspd('border'),borderColor:'#F0997B',backgroundColor:'#F0997B',borderDash:[5,3],tension:.3,pointRadius:0,borderWidth:1.5,spanGaps:true}]:[])]);
+    {label:'霞桜団',data:os,borderColor:'#378ADD',tension:.35,pointRadius:0,borderWidth:2,spanGaps:true},
+    {label:'300位',data:bs,borderColor:'#D85A30',tension:.35,pointRadius:0,borderWidth:2,spanGaps:true},
+    ...(p?[{label:'前回 霞桜団',data:pspd('ours'),borderColor:'#378ADD',borderDash:[4,3],tension:.35,pointRadius:0,borderWidth:1.2,spanGaps:true},
+         {label:'前回 300位',data:pspd('border'),borderColor:'#D85A30',borderDash:[4,3],tension:.35,pointRadius:0,borderWidth:1.2,spanGaps:true}]:[])]);
 }
 function pickOpp(gid){ $('#oppInput').value=gid; loadLive(); }
 async function loadLive(){
@@ -445,25 +522,26 @@ async function loadLive(){
     const sets=[];
     const mk=(side,color)=>({label:`${side==='ours'?'霞':'相手'}(${pd.label})`,
       data:d.hours.map(h=>pd[side][key][h]??null),borderColor:color,backgroundColor:color,
-      borderDash:[3,3],tension:.25,pointRadius:0,borderWidth:1.3,spanGaps:true});
-    if(Object.keys(pd.ours[key]).length) sets.push(mk('ours','rgba(55,138,221,0.35)'));
-    if(Object.keys(pd.opp[key]).length) sets.push(mk('opp','rgba(216,90,48,0.35)'));
+      borderDash:[4,3],tension:.35,pointRadius:0,borderWidth:1.2,spanGaps:true});
+    if(Object.keys(pd.ours[key]).length) sets.push(mk('ours','#378ADD'));
+    if(Object.keys(pd.opp[key]).length) sets.push(mk('opp','#D85A30'));
     return sets;});
   mkChart('#cumC','line',H,[
-    {label:d.ours.name,data:oc,borderColor:'#378ADD',backgroundColor:'#378ADD',tension:.25,pointRadius:0,borderWidth:2.5,spanGaps:true},
-    {label:d.opp.name||'相手',data:pc,borderColor:'#D85A30',backgroundColor:'#D85A30',tension:.25,pointRadius:0,borderWidth:2.5,spanGaps:true},
-    ...pastSets('cum')]);
+    {label:d.ours.name,data:oc,borderColor:'#378ADD',area:'3d',endLabel:true,tension:.35,pointRadius:0,borderWidth:2,spanGaps:true},
+    {label:d.opp.name||'相手',data:pc,borderColor:'#D85A30',area:'33',endLabel:true,tension:.35,pointRadius:0,borderWidth:2,spanGaps:true},
+    ...pastSets('cum')],{padRight:88});
   mkChart('#spdC','line',H,[
-    {label:d.ours.name,data:os,borderColor:'#378ADD',backgroundColor:'#378ADD',tension:.3,pointRadius:0,borderWidth:2,spanGaps:true},
-    {label:d.opp.name||'相手',data:ps,borderColor:'#D85A30',backgroundColor:'#D85A30',tension:.3,pointRadius:0,borderWidth:2,spanGaps:true},
+    {label:d.ours.name,data:os,borderColor:'#378ADD',tension:.35,pointRadius:0,borderWidth:2,spanGaps:true},
+    {label:d.opp.name||'相手',data:ps,borderColor:'#D85A30',tension:.35,pointRadius:0,borderWidth:2,spanGaps:true},
     ...pastSets('speed')]);
   const rh=d.rank_history||[];
   if(rh.some(r=>r.opp!=null)&&document.getElementById('rankC')){
     mkChart('#rankC','line',rh.map(r=>r.label||(r.raid+'回')),[
-      {label:d.ours.name,data:rh.map(r=>r.ours),borderColor:'#378ADD',backgroundColor:'#378ADD',tension:.2,pointRadius:4,borderWidth:2,spanGaps:true},
-      {label:d.opp.name||'相手',data:rh.map(r=>r.opp),borderColor:'#D85A30',backgroundColor:'#D85A30',tension:.2,pointRadius:4,borderWidth:2,spanGaps:true}
-    ],{scales:{x:{grid:{display:false},ticks:{font:{size:11}}},
-       y:{reverse:true,ticks:{font:{size:10},callback:v=>v+'位'}}}});
+      {label:d.ours.name,data:rh.map(r=>r.ours),borderColor:'#378ADD',backgroundColor:'#378ADD',tension:.3,pointRadius:4,borderWidth:2,spanGaps:true},
+      {label:d.opp.name||'相手',data:rh.map(r=>r.opp),borderColor:'#D85A30',backgroundColor:'#D85A30',tension:.3,pointRadius:4,borderWidth:2,spanGaps:true}
+    ],{scales:{x:{grid:{display:false},border:{color:'rgba(28,39,51,.10)'},ticks:{color:'#68707a',font:{size:11}}},
+       y:{reverse:true,grid:{color:'rgba(28,39,51,.038)',drawTicks:false},border:{display:false},
+          ticks:{color:'#68707a',font:{size:10},padding:7,maxTicksLimit:4,callback:v=>v+'位'}}}});
   }
 }
 // gbfdataは毎時更新。毎時3分に取り直し、まだ新データが無ければ3分おきに再試行(最大5回)
@@ -554,9 +632,9 @@ async function loadScout(){
     ${cards}
     <div class="card"><h2>直近3開催 本戦1〜4の当日貢献度比較（霞桜団 ${dayWins}勝 / ${dayN}戦）</h2><div style="overflow-x:auto"><table>
       <tr><th>日程</th><th>霞桜団</th><th>${d.name}</th><th>差</th><th>判定</th></tr>${p3rows}</table></div></div>
-    <div class="card"><h2>直近3回の本戦貢献度比較（青=霞桜団 / 赤=${d.name}）</h2><div class="chartbox"><canvas id="scTot"></canvas></div></div>
+    <div class="card"><h2>直近3回の本戦貢献度比較</h2><div class="chartbox"><canvas id="scTot"></canvas></div></div>
     <div class="card"><h2>総合順位の推移（直近3開催 予選〜本戦）</h2><div class="chartbox" style="height:220px"><canvas id="scRank"></canvas></div></div>
-    <div class="card"><h2 id="scSpdTitle">本戦の最高時速（青=霞桜団 / 赤=${d.name}）</h2><div id="scSpdBox"><div class="load">時速データ取得中…(20秒ほど)</div></div></div>
+    <div class="card"><h2 id="scSpdTitle">本戦の最高時速</h2><div id="scSpdBox"><div class="load">時速データ取得中…(20秒ほど)</div></div></div>
     <div class="card"><h2>前日の比較</h2><div id="scPrevBox"><div class="load">前日データ取得中…</div></div></div>
     ${scoutMembersHtml(d.members,d.name)}
     <div class="card"><h2>${d.name} の過去実績（億）</h2><div style="overflow-x:auto"><table>
@@ -570,14 +648,16 @@ async function loadScout(){
     dl.push(`${e.raid}回${DN[k].replace('本戦','本')}`); do1.push(o??null); dp1.push(p??null);
   }));
   mkChart('#scTot','bar',dl,[
-    {label:'霞桜団',data:do1,backgroundColor:'#378ADD',borderRadius:3},
-    {label:d.name,data:dp1,backgroundColor:'#D85A30',borderRadius:3}
-  ]);
+    {label:'霞桜団',data:do1,bar:'#378ADD',borderRadius:4,borderSkipped:false},
+    {label:d.name,data:dp1,bar:'#D85A30',borderRadius:4,borderSkipped:false}
+  ],{datasets:{bar:{categoryPercentage:.72,barPercentage:.92}}});
   const rh=d.rank_history||[];
   mkChart('#scRank','line',rh.map(r=>r.label),[
-    {label:'霞桜団',data:rh.map(r=>r.ours),borderColor:'#378ADD',backgroundColor:'#378ADD',tension:0.2,borderWidth:2.5,pointRadius:3,spanGaps:true},
-    {label:d.name,data:rh.map(r=>r.opp),borderColor:'#D85A30',backgroundColor:'#D85A30',tension:0.2,borderWidth:2.5,pointRadius:3,spanGaps:true}
-  ],{scales:{x:{grid:{display:false},ticks:{font:{size:10}}},y:{reverse:true,ticks:{font:{size:10},callback:v=>v+'位'}}}});
+    {label:'霞桜団',data:rh.map(r=>r.ours),borderColor:'#378ADD',backgroundColor:'#378ADD',tension:0.3,borderWidth:2,pointRadius:3,spanGaps:true},
+    {label:d.name,data:rh.map(r=>r.opp),borderColor:'#D85A30',backgroundColor:'#D85A30',tension:0.3,borderWidth:2,pointRadius:3,spanGaps:true}
+  ],{scales:{x:{grid:{display:false},border:{color:'rgba(28,39,51,.10)'},ticks:{color:'#68707a',font:{size:10}}},
+     y:{reverse:true,grid:{color:'rgba(28,39,51,.038)',drawTicks:false},border:{display:false},
+        ticks:{color:'#68707a',font:{size:10},padding:7,maxTicksLimit:4,callback:v=>v+'位'}}}});
   loadScoutSpeed(d.gid, d.name);
 }
 async function loadScoutSpeed(gid,oppName){
@@ -631,12 +711,12 @@ function scoutPrevView(prev,oppName){
     <div style="overflow-x:auto;margin-top:12px"><table><tr><th>時刻</th><th>霞桜団</th><th>総合順位</th><th>時速</th><th>${oppName}</th><th>総合順位</th><th>時速</th><th>差</th></tr>${rows}</table></div>`;
   const lab=L.map(hLbl);
   mkChart('#scPrevCum','line',lab,[
-    {label:'霞桜団 累積',data:L.map(t=>oc[t]??null),borderColor:'#378ADD',backgroundColor:'#378ADD',tension:.3,borderWidth:2.5,pointRadius:2,spanGaps:true},
-    {label:oppName+' 累積',data:L.map(t=>pc[t]??null),borderColor:'#D85A30',backgroundColor:'#D85A30',tension:.3,borderWidth:2.5,pointRadius:2,spanGaps:true}
-  ]);
+    {label:'霞桜団',data:L.map(t=>oc[t]??null),borderColor:'#378ADD',area:'3d',endLabel:true,tension:.35,borderWidth:2,pointRadius:0,spanGaps:true},
+    {label:oppName,data:L.map(t=>pc[t]??null),borderColor:'#D85A30',area:'33',endLabel:true,tension:.35,borderWidth:2,pointRadius:0,spanGaps:true}
+  ],{padRight:88});
   mkChart('#scPrevSpd','line',lab,[
-    {label:'霞桜団 時速',data:L.map(t=>os[t]??null),borderColor:'#378ADD',backgroundColor:'#378ADD',tension:.3,borderWidth:2.5,pointRadius:2,spanGaps:true},
-    {label:oppName+' 時速',data:L.map(t=>ps[t]??null),borderColor:'#D85A30',backgroundColor:'#D85A30',tension:.3,borderWidth:2.5,pointRadius:2,spanGaps:true}
+    {label:'霞桜団',data:L.map(t=>os[t]??null),borderColor:'#378ADD',tension:.35,borderWidth:2,pointRadius:0,spanGaps:true},
+    {label:oppName,data:L.map(t=>ps[t]??null),borderColor:'#D85A30',tension:.35,borderWidth:2,pointRadius:0,spanGaps:true}
   ]);
 }
 let SPD=null;
@@ -660,11 +740,11 @@ function scoutSpeedTab(mode){
   $('#scSpdTable').innerHTML=isMax?SPD.tblMax:SPD.tblAvg;
   // 見出しは選択中のタブに追従させる(最高/平均どちらを見ているか一目で分かるように)
   const t=$('#scSpdTitle');
-  if(t) t.textContent=`本戦の${isMax?'最高':'平均'}時速（青=霞桜団 / 赤=${SPD.oppName}）`;
+  if(t) t.textContent=`本戦の${isMax?'最高':'平均'}時速`;
   mkChart('#scSpd','bar',SPD.L,[
-    {label:'霞桜団 '+(isMax?'最高時速':'平均時速'),data:isMax?SPD.om:SPD.oa,backgroundColor:'#378ADD',borderRadius:3},
-    {label:SPD.oppName+' '+(isMax?'最高時速':'平均時速'),data:isMax?SPD.pm:SPD.pa,backgroundColor:'#D85A30',borderRadius:3}
-  ]);
+    {label:'霞桜団',data:isMax?SPD.om:SPD.oa,bar:'#378ADD',borderRadius:4,borderSkipped:false},
+    {label:SPD.oppName,data:isMax?SPD.pm:SPD.pa,bar:'#D85A30',borderRadius:4,borderSkipped:false}
+  ],{datasets:{bar:{categoryPercentage:.72,barPercentage:.92}}});
 }
 function koranPast3Html(p3,s2,s1,name){
   if(!p3||!p3.labels) return '';
@@ -729,20 +809,19 @@ async function loadKoran(){
   const trows=d.rows.map(r=>`<tr><td>${r.label}</td><td>${f1(r.player)}</td><td style="color:var(--mut)">${r.rank?r.rank+'位':'—'}</td>`
     +(s2?`<td>${f1(r.b2000)}</td>${cell(r.vs2000)}`:'')
     +(s1?`<td>${f1(r.b100k)}</td>${cell(r.vs100k)}`:'')+`</tr>`).join('');
-  const chartLbl=[s2&&'赤=英雄(2000位)',s1&&'緑=10万位'].filter(Boolean).join(' / ');
   $('#koranBody').innerHTML=`
     <div class="card"><div class="row" style="justify-content:space-between"><div><b style="font-size:16px">${d.name}</b> <a href="${d.url}" target="_blank" style="font-size:12px">gbfdata↗</a></div></div></div>
     ${cards}
     ${projSection}
-    <div class="card"><h2>累積貢献度の推移（億）— 青=本人${chartLbl?' / '+chartLbl:''}</h2><div class="chartbox"><canvas id="kCum"></canvas></div></div>
+    <div class="card"><h2>累積貢献度の推移（億）</h2><div class="chartbox"><canvas id="kCum"></canvas></div></div>
     <div class="card"><h2>日別の比較（数値・億）</h2><div style="overflow-x:auto"><table><tr><th>日程</th><th>${d.name}</th><th>順位</th>${s2?'<th>英雄(2000位)</th><th>差</th>':''}${s1?'<th>10万位</th><th>差</th>':''}</tr>${trows}</table></div></div>
     ${koranPast3Html(d.past3,s2,s1,d.name)}`;
   const Lx=d.rows.map(r=>r.label);
   mkChart('#kCum','line',Lx,[
-    {label:d.name,data:d.rows.map(r=>r.player),borderColor:'#378ADD',backgroundColor:'#378ADD',tension:0.2,borderWidth:2.5,pointRadius:3},
-    ...(s2?[{label:'英雄(2000位)',data:d.rows.map(r=>r.b2000),borderColor:'#D85A30',tension:0.2,borderWidth:2,pointRadius:0}]:[]),
-    ...(s1?[{label:'10万位',data:d.rows.map(r=>r.b100k),borderColor:'#1D9E75',tension:0.2,borderWidth:2,pointRadius:0}]:[])
-  ]);
+    {label:d.name,data:d.rows.map(r=>r.player),borderColor:'#378ADD',area:'3d',endLabel:true,tension:0.35,borderWidth:2,pointRadius:0},
+    ...(s2?[{label:'英雄(2000位)',data:d.rows.map(r=>r.b2000),borderColor:'#D85A30',endLabel:true,tension:0.35,borderWidth:2,pointRadius:0}]:[]),
+    ...(s1?[{label:'10万位',data:d.rows.map(r=>r.b100k),borderColor:'#1D9E75',endLabel:true,tension:0.35,borderWidth:2,pointRadius:0}]:[])
+  ],{padRight:104});
 }
 // 個ランの自動更新(ライブと同じ: 毎時3分＋3分おき再試行)
 let kTimer=null, KORAN_TICK=null, kRetryN=0;
@@ -786,24 +865,23 @@ function koranHourlyView(d){
     return `<tr><td>${Lx[T.indexOf(t)]}</td><td>${f1(pc[t])}</td><td style="color:var(--mut)">${prk[t]?prk[t]+'位':'—'}</td><td class="sp${mxCls(psp[t],mP)}">${f1(psp[t])}</td>`
       +(s2?`<td>${f1(b2[t])}</td><td class="sp${mxCls(b2s[t],m2)}">${f1(b2s[t])}</td>${dcell(dd2)}`:'')
       +(s1?`<td>${f1(b1[t])}</td><td class="sp${mxCls(b1s[t],m1)}">${f1(b1s[t])}</td>${dcell(dd1)}`:'')+`</tr>`;}).join('');
-  const chartLbl=[s2&&'赤=英雄(2000位)',s1&&'緑=10万位'].filter(Boolean).join(' / ');
   $('#koranBody').innerHTML=`
     <div class="card"><div class="row" style="justify-content:space-between"><div><b style="font-size:16px">${d.name}</b> <a href="${d.url}" target="_blank" style="font-size:12px">gbfdata↗</a> <span style="font-size:12px;color:var(--mut)">${d.label} 時刻毎</span></div></div></div>
     ${cards}
     ${koranTimeProjHtml(d.proj,s2,s1,d.name,d.confirmed)}
-    <div class="card"><h2>${d.label} 累積の推移（億・1H）— 青=本人${chartLbl?' / '+chartLbl:''}</h2><div class="chartbox"><canvas id="kCumH"></canvas></div></div>
+    <div class="card"><h2>${d.label} 累積の推移（億・1H）</h2><div class="chartbox"><canvas id="kCumH"></canvas></div></div>
     <div class="card"><h2>時速（億・1H）</h2><div class="chartbox"><canvas id="kSpdH"></canvas></div></div>
     <div class="card"><h2>${d.label}（億単位）</h2><div style="overflow-x:auto"><table><tr><th>時刻</th><th>${d.name}</th><th>順位</th><th>時速</th>${s2?'<th>2000位</th><th>時速</th><th>差</th>':''}${s1?'<th>10万位</th><th>時速</th><th>差</th>':''}</tr>${trows}</table></div></div>
     ${koranPast3Html(d.past3,s2,s1,d.name)}`;
   mkChart('#kCumH','line',Lx,[
-    {label:d.name,data:T.map(t=>pc[t]??null),borderColor:'#378ADD',backgroundColor:'#378ADD',tension:0.2,borderWidth:2.5,pointRadius:2,spanGaps:true},
-    ...(s2?[{label:'英雄(2000位)',data:T.map(t=>b2[t]??null),borderColor:'#D85A30',tension:0.2,borderWidth:2,pointRadius:0,spanGaps:true}]:[]),
-    ...(s1?[{label:'10万位',data:T.map(t=>b1[t]??null),borderColor:'#1D9E75',tension:0.2,borderWidth:2,pointRadius:0,spanGaps:true}]:[])
-  ]);
+    {label:d.name,data:T.map(t=>pc[t]??null),borderColor:'#378ADD',area:'3d',endLabel:true,tension:0.35,borderWidth:2,pointRadius:0,spanGaps:true},
+    ...(s2?[{label:'英雄(2000位)',data:T.map(t=>b2[t]??null),borderColor:'#D85A30',endLabel:true,tension:0.35,borderWidth:2,pointRadius:0,spanGaps:true}]:[]),
+    ...(s1?[{label:'10万位',data:T.map(t=>b1[t]??null),borderColor:'#1D9E75',endLabel:true,tension:0.35,borderWidth:2,pointRadius:0,spanGaps:true}]:[])
+  ],{padRight:104});
   mkChart('#kSpdH','line',Lx,[
-    {label:d.name,data:T.map(t=>psp[t]??null),borderColor:'#378ADD',tension:0.2,borderWidth:2,pointRadius:2,spanGaps:true},
-    ...(s2?[{label:'英雄(2000位)',data:T.map(t=>b2s[t]??null),borderColor:'#D85A30',tension:0.2,borderWidth:1.5,pointRadius:0,spanGaps:true}]:[]),
-    ...(s1?[{label:'10万位',data:T.map(t=>b1s[t]??null),borderColor:'#1D9E75',tension:0.2,borderWidth:1.5,pointRadius:0,spanGaps:true}]:[])
+    {label:d.name,data:T.map(t=>psp[t]??null),borderColor:'#378ADD',tension:0.35,borderWidth:2,pointRadius:0,spanGaps:true},
+    ...(s2?[{label:'英雄(2000位)',data:T.map(t=>b2s[t]??null),borderColor:'#D85A30',tension:0.35,borderWidth:1.4,pointRadius:0,spanGaps:true}]:[]),
+    ...(s1?[{label:'10万位',data:T.map(t=>b1s[t]??null),borderColor:'#1D9E75',tension:0.35,borderWidth:1.4,pointRadius:0,spanGaps:true}]:[])
   ]);
 }
 init();

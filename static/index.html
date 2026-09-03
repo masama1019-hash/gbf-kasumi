@@ -442,13 +442,38 @@ async function loadYosen(){
   const prevFinal=pbAll.length?pbAll[pbAll.length-1]:null;
   const projFinal=(lb!=null&&lpb&&prevFinal)?lb*(prevFinal/lpb):null;
   const ourMargin=(lo!=null&&projFinal!=null)?lo-projFinal:null;  // 現時点自団 − 着地予想
+  // ライブ・サーチと同じ構成。判断(通過圏内か・着地に届くか)をバンドにまとめ、
+  // 素の数字はストリップへ落とす
+  const mxY=Math.max(lo??0, lb??0)||1;
+  const diffHtml = v => v==null ? '—'
+    : (v>=0 ? `<span class="up"><span class="mk">▲</span>+${v.toFixed(1)}<span style="font-size:14px;color:var(--mut)">億</span></span>`
+            : `<span class="dn"><span class="mk">▼</span>${v.toFixed(1)}<span style="font-size:14px;color:var(--mut)">億</span></span>`);
+  const yosenNote = diff==null ? '' : (
+    diff>=0
+      ? `現在は<b>通過圏内</b>です。${projFinal!=null?`300位の着地予想は ${f1(projFinal)}億${ourMargin!=null?`で、いまの貢献度との差は ${ourMargin>=0?'+':''}${f1(ourMargin)}億`:''}。`:''}${bpct!=null?`ボーダーは前回同時刻比 ${bpct}%${trendTxt(bpct)}。`:''}`
+      : `現在は<b>圏外</b>です。${projFinal!=null?`300位の着地予想は ${f1(projFinal)}億${ourMargin!=null?`で、あと ${f1(-ourMargin)}億 必要`:''}。`:''}${bpct!=null?`ボーダーは前回同時刻比 ${bpct}%${trendTxt(bpct)}。`:''}`);
+  const yosenHero=`
+    <div class="hero">
+      <div class="heroTop">
+        <div class="heroLead"><div class="k">300位との差</div><div class="v">${diffHtml(diff)}</div></div>
+        <div class="heroMid">
+          <div class="st">${diff==null?'':(diff>=0?'通過圏内':'圏外・要追い上げ')}</div>
+          <div class="bar"><i style="width:${(lo??0)/mxY*100}%;background:var(--blue)"></i></div>
+          <div class="bar" style="margin-top:6px"><i style="width:${(lb??0)/mxY*100}%;background:var(--red)"></i></div>
+          <div class="sub">霞桜団 ${lo?.toFixed(1)??'—'}億${lr?`（${lr}位）`:''} ／ 300位ボーダー ${lb?.toFixed(1)??'—'}億　<span style="opacity:.8">${L[li]??''}時点</span></div>
+        </div>
+        ${projFinal!=null?`<div class="heroWin"><div class="k">300位 着地予想</div><div class="v">${f1(projFinal)}<span style="font-size:14px;color:var(--mut)">億</span></div>
+          ${ourMargin!=null?`<div class="k">自団との差 ${ourMargin>=0?'+':''}${f1(ourMargin)}億</div>`:''}</div>`:''}
+      </div>
+      ${yosenNote?`<div class="heroAct"><span class="tx">${yosenNote}</span></div>`:''}
+    </div>`;
   $('#liveBody').innerHTML=`
-    <div class="metrics">
-      <div class="metric"><div class="l">霞桜団 予選貢献度</div><div class="v">${lo?.toFixed(1)??'—'}<span style="font-size:12px">億</span></div><div class="s">${lr?lr+'位':''}</div></div>
-      <div class="metric"><div class="l">300位ボーダー</div><div class="v">${lb?.toFixed(1)??'—'}<span style="font-size:12px">億</span></div><div class="s">予選通過ライン</div></div>
-      <div class="metric"><div class="l">300位との差</div><div class="v ${diff>=0?'good':'bad'}">${diff!=null?(diff>0?'+':'')+diff.toFixed(1):'—'}<span style="font-size:12px">億</span></div><div class="s">${diff!=null?(diff>=0?'通過圏内':'圏外・要追い上げ'):''}</div></div>
-      ${p?`<div class="metric"><div class="l">300位 前回同時刻比</div><div class="v ${bdiff>0?'bad':'good'}" style="font-size:20px">${bpct!=null?bpct+'%':'—'}</div><div class="s">前回${lpb?.toFixed(1)??'—'}億 / ${bdiff!=null?(bdiff>0?'+':'')+bdiff.toFixed(1)+'億':''}${trendTxt(bpct)}</div></div>`:''}
-      ${projFinal!=null?`<div class="metric"><div class="l">300位ボーダー着地予想</div><div class="v">${f1(projFinal)}<span style="font-size:12px">億</span></div><div class="s">前回最終${f1(prevFinal)}億基準${bpct!=null?` / 前回着地比較（同時刻${bpct}%）`:''}</div></div>`:''}
+    ${yosenHero}
+    <div class="strip">
+      <div><div class="k">霞桜団 予選貢献度</div><div class="v">${lo?.toFixed(1)??'—'}<span class="u">億</span></div><div class="k">${lr?lr+'位':''}</div></div>
+      <div><div class="k">300位ボーダー</div><div class="v">${lb?.toFixed(1)??'—'}<span class="u">億</span></div><div class="k">予選通過ライン</div></div>
+      ${p?`<div><div class="k">300位 前回同時刻比</div><div class="v">${bpct!=null?bpct:'—'}<span class="u">%</span></div><div class="k">前回${lpb?.toFixed(1)??'—'}億${bdiff!=null?` / ${bdiff>0?'+':''}${bdiff.toFixed(1)}億`:''}${trendTxt(bpct)}</div></div>`:''}
+      ${projFinal!=null?`<div><div class="k">300位ボーダー着地予想</div><div class="v">${f1(projFinal)}<span class="u">億</span></div><div class="k">前回最終${f1(prevFinal)}億を基準</div></div>`:''}
     </div>
     <div class="card"><h2>累積貢献度（億）— 実線=今回(第${d.raid}回) / 破線=前回(第${d.raid-1}回)</h2><div class="chartbox"><canvas id="yCum"></canvas></div></div>
     <div class="card"><h2>時速（億/h）— 実線=今回(第${d.raid}回) / 破線=前回(第${d.raid-1}回)</h2><div class="chartbox"><canvas id="ySpd"></canvas></div></div>
@@ -718,7 +743,6 @@ async function loadScout(){
     $('#scoutBody').innerHTML=`<div class="card"><h2>該当団が${d.candidates.length}件${d.prev_label?` — ${d.prev_label}貢献度・総合順位で選択`:''}</h2><table><tr><th style="text-align:left">団名</th><th>${d.prev_label||''}貢献度</th><th>総合順位</th><th></th></tr>${rows}</table></div>`;
     return;
   }
-  const wr=d.winrate!=null?`<span class="badge" style="background:${d.winrate>=55?'#e1f5ee':d.winrate>=45?'#faeeda':'#fcebeb'};color:${d.winrate>=55?'#0F6E56':d.winrate>=45?'#854F0B':'#A32D2D'}">霞桜団 勝率目安 ${d.winrate}%</span>`:'';
   // 大きい数値はカンマ区切りで読みやすく
   const fN=x=>(x!=null&&x!=='')?(+x).toLocaleString('ja-JP',{minimumFractionDigits:1,maximumFractionDigits:1}):'—';
   let evRows=d.events.map(e=>{
@@ -735,15 +759,33 @@ async function loadScout(){
   const ev=[...d.events].sort((a,b)=>a.raid-b.raid);      // 古い順
   const last=d.events[0]||{};
   const avgDiff=(d.ours_avg!=null&&d.past_avg!=null)?(d.ours_avg-d.past_avg):null;
-  const wcls=d.winrate>=55?'good':(d.winrate>=45?'':'bad');
   const P=d.prev_day;
-  const cards=`<div class="metrics">
-    ${P?`<div class="metric" style="outline:2px solid var(--blue);outline-offset:-2px"><div class="l">前日貢献度（${P.label}）</div><div class="v ${P.diff!=null?(P.diff>=0?'good':'bad'):''}">${P.diff!=null?(P.diff>0?'+':'')+f1(P.diff):'—'}<span style="font-size:12px">億</span></div><div class="s">霞桜団 ${f1(P.ours)} / ${d.name} ${f1(P.opp)}</div></div>`:''}
-    <div class="metric opp"><div class="l">${d.name} 直近総計</div><div class="v">${f1(last.total)}<span style="font-size:12px">億</span></div><div class="s">第${last.raid}回 ${last.final_rank?last.final_rank+'位':''}</div></div>
-    <div class="metric opp"><div class="l">相手 本戦日毎平均</div><div class="v">${f1(d.past_avg)}<span style="font-size:12px">億</span></div><div class="s">直近3回の本戦</div></div>
-    <div class="metric ours"><div class="l">霞桜団 本戦日毎平均</div><div class="v ${avgDiff!=null?(avgDiff>=0?'good':'bad'):''}">${f1(d.ours_avg)}<span style="font-size:12px">億</span></div><div class="s">${avgDiff!=null?(avgDiff>=0?'+':'')+f1(avgDiff)+'億 差':'同期間'}</div></div>
-    ${d.winrate!=null?`<div class="metric"><div class="l">勝率目安</div><div class="v ${wcls}">${d.winrate}%</div><div class="s">${d.win_note?`直近${d.win_note.raids}回の本戦 ${d.win_note.days}日中 霞桜団が上回り ${d.win_note.wins}日`:''}</div></div>`:''}
-  </div>`;
+  // ライブと同じ構成。判断(勝率・マッチング基準)を1枚のバンドにまとめ、
+  // 素の数字は下のストリップへ落とす
+  const mxAvg=Math.max(d.ours_avg??0, d.past_avg??0)||1;
+  const dayHtml = v => v==null ? '—'
+    : (v>=0 ? `<span class="up"><span class="mk">▲</span>+${f1(v)}<span style="font-size:14px;color:var(--mut)">億</span></span>`
+            : `<span class="dn"><span class="mk">▼</span>${f1(v)}<span style="font-size:14px;color:var(--mut)">億</span></span>`);
+  const cards=`
+    <div class="hero">
+      <div class="heroTop">
+        ${P?`<div class="heroLead"><div class="k">前日貢献度（${P.label}）</div><div class="v">${dayHtml(P.diff)}</div></div>`:''}
+        <div class="heroMid">
+          <div class="st">本戦の日毎平均（直近3回）</div>
+          <div class="bar"><i style="width:${(d.ours_avg??0)/mxAvg*100}%;background:var(--blue)"></i></div>
+          <div class="bar" style="margin-top:6px"><i style="width:${(d.past_avg??0)/mxAvg*100}%;background:var(--red)"></i></div>
+          <div class="sub">霞桜団 ${f1(d.ours_avg)}億 ／ ${d.name} ${f1(d.past_avg)}億${P?`　<span style="opacity:.8">前日は 霞桜団 ${f1(P.ours)}億 ／ ${d.name} ${f1(P.opp)}億（翌日のマッチング基準）</span>`:''}</div>
+        </div>
+        ${d.winrate!=null?`<div class="heroWin"><div class="k">霞桜団 勝率目安</div><div class="v">${d.winrate}<span style="font-size:14px;color:var(--mut)">%</span></div></div>`:''}
+      </div>
+      ${d.win_note?`<div class="heroAct"><span class="tx">直近${d.win_note.raids}回の本戦 <b>${d.win_note.days}日中、霞桜団が上回ったのは ${d.win_note.wins}日</b>。勝率目安はこの実績と日毎平均の比から出しています</span></div>`:''}
+    </div>
+    <div class="strip">
+      <div><div class="k">${d.name} 直近総計</div><div class="v">${f1(last.total)}<span class="u">億</span></div><div class="k">第${last.raid}回 ${last.final_rank?last.final_rank+'位':''}</div></div>
+      <div><div class="k">${d.name} 本戦日毎平均</div><div class="v">${f1(d.past_avg)}<span class="u">億</span></div><div class="k">直近3回の本戦</div></div>
+      <div><div class="k">霞桜団 本戦日毎平均</div><div class="v">${f1(d.ours_avg)}<span class="u">億</span></div><div class="k">同期間</div></div>
+      <div><div class="k">日毎平均の差</div><div class="v">${avgDiff!=null?(avgDiff>=0?'+':'')+f1(avgDiff):'—'}<span class="u">億</span></div><div class="k">霞桜団 − ${d.name}</div></div>
+    </div>`;
   // 過去3戦の本戦比較テーブル
   const p3=d.events.slice(0,3);
   // 直近3開催 × 本戦1〜4 の当日貢献度で日別比較
@@ -764,7 +806,7 @@ async function loadScout(){
   $('#scoutBody').innerHTML=`
     <div class="card">
       <div class="row" style="justify-content:space-between">
-        <div><b style="font-size:16px">${d.name}</b> <a href="${d.url}" target="_blank" style="font-size:12px">団ページ↗</a></div>${wr}
+        <div><b style="font-size:16px">${d.name}</b> <a href="${d.url}" target="_blank" style="font-size:12px">団ページ↗</a></div>
       </div>
     </div>
     ${cards}

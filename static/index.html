@@ -919,6 +919,33 @@ function scoutSpeedTab(mode){
     {label:SPD.oppName,data:isMax?SPD.pm:SPD.pa,bar:'#D85A30',borderRadius:4,borderSkipped:false}
   ],{datasets:{bar:{categoryPercentage:.72,barPercentage:.92}}});
 }
+// 個ランの判断バンド。ライブ・サーチ・予選と同じ構成に揃える。
+// 左=本人の累積、中=本人と2本のラインの比較バー、右=着地、下帯=到達判定
+function koranHero(o){
+  const {name,player,rank,label,b2000,b100k,vs2000,vs100k,s2,s1,proj,confirmed,projLabel}=o;
+  const vals=[player,s2?b2000:null,s1?b100k:null].filter(v=>v!=null);
+  const mx=vals.length?Math.max(...vals):1;
+  const bar=(v,color)=>v==null?'':`<div class="bar" style="margin-top:6px"><i style="width:${v/mx*100}%;background:${color}"></i></div>`;
+  const note=[];
+  if(s2&&vs2000!=null) note.push(vs2000>=0?`<b class="up">英雄ライン超え +${f1(vs2000)}億</b>`:`英雄ラインまで <b>${f1(-vs2000)}億</b>`);
+  if(s1&&vs100k!=null) note.push(vs100k>=0?`<b class="up">10万位 圏内 +${f1(vs100k)}億</b>`:`<b class="dn">10万位まで ${f1(-vs100k)}億</b>`);
+  return `<div class="hero">
+    <div class="heroTop">
+      <div class="heroLead"><div class="k">${name} 累積貢献度</div>
+        <div class="v">${f1(player)}<span style="font-size:16px;color:var(--mut)">億</span></div></div>
+      <div class="heroMid">
+        <div class="st">${rank?rank.toLocaleString('ja-JP')+'位':''}${label?`　<span class="k" style="font-weight:400">${label}時点</span>`:''}</div>
+        <div class="bar"><i style="width:${(player??0)/mx*100}%;background:var(--blue)"></i></div>
+        ${s2?bar(b2000,'var(--red)'):''}${s1?bar(b100k,'var(--green)'):''}
+        <div class="sub">本人 ${f1(player)}億${s2?` ／ 英雄(2000位) ${f1(b2000)}億`:''}${s1?` ／ 10万位 ${f1(b100k)}億`:''}</div>
+      </div>
+      ${proj!=null?`<div class="heroWin"><div class="k">${confirmed?'着地':'着地目安'}</div>
+        <div class="v">${f1(proj)}<span style="font-size:14px;color:var(--mut)">億</span></div>
+        <div class="k">${confirmed?'確定値':(projLabel||'前回ペース比')}</div></div>`:''}
+    </div>
+    ${note.length?`<div class="heroAct"><span class="tx">${note.join('　／　')}</span></div>`:''}
+  </div>`;
+}
 function koranPast3Html(p3,s2,s1,name){
   if(!p3||!p3.labels) return '';
   const head=p3.labels.map(l=>`<th>${l}</th>`).join('');
@@ -929,17 +956,14 @@ function koranPast3Html(p3,s2,s1,name){
   return `<div class="card"><h2>参考：直近6回の着地（億）</h2><div style="overflow-x:auto"><table><tr><th style="text-align:left">ライン</th>${head}</tr>${rows}</table></div>
     <div style="font-size:11px;color:var(--mut);margin-top:6px">※2000位/10万位はgbfdata優先、無い回はGameWith履歴で補完（第77回まで。それ以前は—）。本人は履歴のある範囲で表示。</div></div>`;
 }
+// 着地の値は判断バンドの右とストリップに出るので、ここでは見込みの文だけ返す
 function koranTimeProjHtml(P,s2,s1,name,confirmed){
-  if(!P||(P.player==null&&P.b2000==null&&P.b100k==null)) return '';
-  const lw=confirmed?'着地':'着地目安', subw=confirmed?'確定値':'前回同時刻ペース';
+  if(!P||P.player==null) return '';
   const note=[];
-  if(s2&&P.vs2000!=null)note.push(P.vs2000>=0?`<span class="good">英雄到達見込み +${f1(P.vs2000)}億</span>`:`英雄まで ${f1(-P.vs2000)}億`);
-  if(s1&&P.vs100k!=null)note.push(P.vs100k>=0?`10万位 圏内見込み`:`<span class="bad">10万位 圏外見込み</span>`);
-  return `<div class="card" style="padding-bottom:4px"><h2>${confirmed?'着地（確定）':`着地目安（時点・前回第${P.prev_raid}回比${P.time?` ／ ${P.time}基準`:''}）`}</h2><div class="metrics">
-    <div class="metric ours"><div class="l">${name} ${lw}</div><div class="v">${f1(P.player)}<span style="font-size:12px">億</span></div><div class="s">${note.join(' / ')}</div></div>
-    ${s2?`<div class="metric hero"><div class="l">英雄ライン(2000位) ${lw}</div><div class="v">${f1(P.b2000)}<span style="font-size:12px">億</span></div><div class="s">${subw}</div></div>`:''}
-    ${s1?`<div class="metric p100k"><div class="l">10万位ライン ${lw}</div><div class="v">${f1(P.b100k)}<span style="font-size:12px">億</span></div><div class="s">${subw}</div></div>`:''}
-  </div></div>`;
+  if(s2&&P.vs2000!=null)note.push(P.vs2000>=0?`<b class="up">英雄到達見込み +${f1(P.vs2000)}億</b>`:`英雄まで ${f1(-P.vs2000)}億`);
+  if(s1&&P.vs100k!=null)note.push(P.vs100k>=0?`10万位 圏内見込み`:`<b class="dn">10万位 圏外見込み</b>`);
+  if(!note.length) return '';
+  return `<div class="card" style="font-size:13px;color:var(--mut)">着地見込み：${note.join('　／　')}</div>`;
 }
 async function loadKoran(){
   const q=$('#koranQ').value.trim(); if(!q)return;
@@ -960,24 +984,25 @@ async function loadKoran(){
   KORAN_TICK='d:'+((L.label||'')+':'+(L.player??''));
   const vs2=v=> v==null?'':(v>=0?`<span class="good">英雄ライン超え +${f1(v)}億</span>`:`英雄ラインまで ${f1(-v)}億`);
   const vs1=v=> v==null?'':(v>=0?`<span class="good">10万位 圏内 +${f1(v)}億</span>`:`<span class="bad">10万位まで ${f1(-v)}億</span>`);
-  const cards=`<div class="metrics">
-    <div class="metric ours"><div class="l">${d.name} 累積貢献度</div><div class="v">${f1(L.player)}<span style="font-size:12px">億</span></div><div class="s">${L.rank?L.rank+'位':''}${L.label?`（${L.label}時点）`:''}</div></div>
-    ${s2?`<div class="metric hero"><div class="l">英雄ライン(2000位)</div><div class="v">${f1(L.b2000)}<span style="font-size:12px">億</span></div><div class="s">${vs2(L.vs2000)}</div></div>`:''}
-    ${s1?`<div class="metric p100k"><div class="l">10万位ライン</div><div class="v">${f1(L.b100k)}<span style="font-size:12px">億</span></div><div class="s">${vs1(L.vs100k)}</div></div>`:''}
-  </div>`;
+  const Px=d.proj||{};
+  const cards=koranHero({name:d.name,player:L.player,rank:L.rank,label:L.label,
+    b2000:L.b2000,b100k:L.b100k,vs2000:L.vs2000,vs100k:L.vs100k,s2,s1,
+    proj:Px.player,confirmed:d.confirmed,
+    projLabel:Px.prev_raid?`前回第${Px.prev_raid}回のペース比`:''})
+   +`<div class="strip">
+      ${s2?`<div><div class="k">英雄ライン(2000位)</div><div class="v">${f1(L.b2000)}<span class="u">億</span></div><div class="k">${vs2(L.vs2000)}</div></div>`:''}
+      ${s1?`<div><div class="k">10万位ライン</div><div class="v">${f1(L.b100k)}<span class="u">億</span></div><div class="k">${vs1(L.vs100k)}</div></div>`:''}
+      ${s2&&Px.b2000!=null?`<div><div class="k">英雄ライン ${d.confirmed?'着地':'着地目安'}</div><div class="v">${f1(Px.b2000)}<span class="u">億</span></div><div class="k">${d.confirmed?'確定値':'前回最終からの予測'}</div></div>`:''}
+      ${s1&&Px.b100k!=null?`<div><div class="k">10万位ライン ${d.confirmed?'着地':'着地目安'}</div><div class="v">${f1(Px.b100k)}<span class="u">億</span></div><div class="k">${d.confirmed?'確定値':'前回最終からの予測'}</div></div>`:''}
+    </div>`;
   const P=d.proj||{};
   const projNote=(v2,v1)=>{const s=[];
     if(s2&&v2!=null)s.push(v2>=0?`<span class="good">英雄ライン到達見込み +${f1(v2)}億</span>`:`英雄ラインまで ${f1(-v2)}億`);
     if(s1&&v1!=null)s.push(v1>=0?`10万位 圏内見込み`:`<span class="bad">10万位 圏外見込み</span>`);
     return s.join(' / ');};
-  const lw=d.confirmed?'着地':'着地目安', subw=d.confirmed?'確定値':'前回最終からの予測';
-  const projSection=(P.player!=null||P.b2000!=null||P.b100k!=null)?`
-    <div class="card" style="padding-bottom:4px"><h2>${d.confirmed?`着地（第${d.raid}回・確定）`:`着地目安（前回第${P.prev_raid}回のペース比${P.label?` ／ ${P.label}時点を基準`:''}）`}</h2>
-    <div class="metrics">
-      <div class="metric ours"><div class="l">${d.name} ${lw}</div><div class="v">${f1(P.player)}<span style="font-size:12px">億</span></div><div class="s">${projNote(P.vs2000,P.vs100k)}</div></div>
-      ${s2?`<div class="metric hero"><div class="l">英雄ライン(2000位) ${lw}</div><div class="v">${f1(P.b2000)}<span style="font-size:12px">億</span></div><div class="s">${subw}</div></div>`:''}
-      ${s1?`<div class="metric p100k"><div class="l">10万位ライン ${lw}</div><div class="v">${f1(P.b100k)}<span style="font-size:12px">億</span></div><div class="s">${subw}</div></div>`:''}
-    </div></div>`:'';
+  // 着地は判断バンドの右とストリップに吸収したので、着地見込みの文だけ残す
+  const projSection=(P.player!=null&&projNote(P.vs2000,P.vs100k))
+    ? `<div class="card" style="font-size:13px;color:var(--mut)">着地見込み：${projNote(P.vs2000,P.vs100k)}</div>` : '';
   const cell=(v,neg)=>`<td class="${v!=null?(v>=0?'good':'bad'):''}">${v!=null?(v>=0?'+':'')+f1(v):'—'}</td>`;
   const trows=d.rows.map(r=>`<tr><td>${r.label}</td><td>${f1(r.player)}</td><td style="color:var(--mut)">${r.rank?r.rank+'位':'—'}</td>`
     +(s2?`<td>${f1(r.b2000)}</td>${cell(r.vs2000)}`:'')
@@ -1027,11 +1052,17 @@ function koranHourlyView(d){
   const lb=T[T.length-1];
   const pv=li!=null?pc[li]:null, v2=lb?b2[lb]:null, v1=lb?b1[lb]:null;
   const d2=(pv!=null&&v2!=null)?pv-v2:null, d1=(pv!=null&&v1!=null)?pv-v1:null;
-  const cards=`<div class="metrics">
-    <div class="metric ours"><div class="l">${d.name}（${li||''}時点）</div><div class="v">${f1(pv)}<span style="font-size:12px">億</span></div><div class="s">${li!=null&&prk[li]?prk[li]+'位':''}</div></div>
-    ${s2?`<div class="metric hero"><div class="l">英雄ライン(2000位)</div><div class="v">${f1(v2)}<span style="font-size:12px">億</span></div><div class="s">${d2!=null?(d2>=0?`<span class="good">超え +${f1(d2)}億</span>`:`あと ${f1(-d2)}億`):''}</div></div>`:''}
-    ${s1?`<div class="metric p100k"><div class="l">10万位ライン</div><div class="v">${f1(v1)}<span style="font-size:12px">億</span></div><div class="s">${d1!=null?(d1>=0?`<span class="good">圏内 +${f1(d1)}億</span>`:`<span class="bad">あと ${f1(-d1)}億</span>`):''}</div></div>`:''}
-  </div>`;
+  const Ph=d.proj||{};
+  const cards=koranHero({name:d.name,player:pv,rank:(li!=null?prk[li]:null),label:(li?hLbl(li)+'時':''),
+    b2000:v2,b100k:v1,vs2000:d2,vs100k:d1,s2,s1,
+    proj:Ph.player,confirmed:d.confirmed,
+    projLabel:Ph.prev_raid?`前回第${Ph.prev_raid}回の同時刻比`:''})
+   +`<div class="strip">
+      ${s2?`<div><div class="k">英雄ライン(2000位)</div><div class="v">${f1(v2)}<span class="u">億</span></div><div class="k">${d2!=null?(d2>=0?`超え +${f1(d2)}億`:`あと ${f1(-d2)}億`):''}</div></div>`:''}
+      ${s1?`<div><div class="k">10万位ライン</div><div class="v">${f1(v1)}<span class="u">億</span></div><div class="k">${d1!=null?(d1>=0?`圏内 +${f1(d1)}億`:`あと ${f1(-d1)}億`):''}</div></div>`:''}
+      ${s2&&Ph.b2000!=null?`<div><div class="k">英雄ライン ${d.confirmed?'着地':'着地目安'}</div><div class="v">${f1(Ph.b2000)}<span class="u">億</span></div><div class="k">${d.confirmed?'確定値':'前回同時刻ペース'}</div></div>`:''}
+      ${s1&&Ph.b100k!=null?`<div><div class="k">10万位ライン ${d.confirmed?'着地':'着地目安'}</div><div class="v">${f1(Ph.b100k)}<span class="u">億</span></div><div class="k">${d.confirmed?'確定値':'前回同時刻ペース'}</div></div>`:''}
+    </div>`;
   const dcell=v=>`<td class="${v!=null?(v>=0?'good':'bad'):''}">${v!=null?(v>=0?'+':'')+f1(v):'—'}</td>`;
   const mP=mxOf(T.map(t=>psp[t])), m2=mxOf(T.map(t=>b2s[t])), m1=mxOf(T.map(t=>b1s[t]));
   const trows=T.map(t=>{const dd2=(pc[t]!=null&&b2[t]!=null)?pc[t]-b2[t]:null, dd1=(pc[t]!=null&&b1[t]!=null)?pc[t]-b1[t]:null;

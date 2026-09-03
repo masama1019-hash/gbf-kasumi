@@ -66,6 +66,8 @@
   /* 高さが揃わない(パターンはバーぶん高い)ので、値は残りの空きの中央に置く */
   .strip .v { font-size:16px; font-weight:600; margin:auto 0; }
   .strip .v .u { font-size:10.5px; color:var(--mut); font-weight:600; }
+  /* 下段(型・方針)はパターンのバーを置くぶん広めに。上段と隙間なく続ける */
+  .strip2 { grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); margin-top:6px; }
   .pat { display:flex; height:7px; border-radius:4px; overflow:hidden; margin-top:5px; gap:2px; }
   .pat i { display:block; }
   .patlg { display:flex; gap:4px 8px; margin-top:5px; font-size:10.5px; color:var(--mut); flex-wrap:wrap; }
@@ -511,9 +513,12 @@ function patCell(p,who){
 // 総合順位は順位帯のマス目で見せる。折れ線だと自団(112〜423位)の変動が
 // 相手のスケールに潰されて真っ平らに見えるため。上位ほど赤・下位ほど青。
 // 隣接帯のΔEは最小21.8、文字色は地の明るさで白/濃紺を出し分ける
-const RANK_BANDS=[[100,'#6E1A10','〜100位','#fff'],[300,'#C15038','〜300位','#fff'],
-                  [1000,'#F2E3D6','〜1000位','#1c2733'],[3000,'#7FA8CC','〜3000位','#1c2733'],
-                  [Infinity,'#1F4E79','3000位超','#fff']];
+// 上位側を細かく刻む(自団も相手も3000位より上にいるため、粗い帯だと差が出ない)。
+// 隣接帯のΔEは最小15.0、文字は地の明るさで白/濃紺を出し分け最小4.69を確保
+const RANK_BANDS=[[10,'#4A0F06','〜10位','#fff'],[100,'#8C2317','〜100位','#fff'],
+                  [300,'#C1503A','〜300位','#fff'],[500,'#E09872','〜500位','#1c2733'],
+                  [1000,'#F2E3D6','〜1000位','#1c2733'],[2000,'#8FB4D4','〜2000位','#1c2733'],
+                  [Infinity,'#1F4E79','2000位超','#fff']];
 function rankHeatHtml(rh,oursName,oppName){
   if(!rh||!rh.length) return '';
   const raids=[...new Set(rh.map(r=>r.raid))];
@@ -562,7 +567,7 @@ async function loadLive(){
   const lead=lp!=null?(lo-lp):null;
   // 前日同時刻比(撤退判断): 直近時刻の値 ÷ 前日(=past配列の最後)の同時刻値
   const prev=(d.past||[]).length?d.past[d.past.length-1]:null;
-  let judgeCards='';
+  let judgeCards='', typeCards='';   // 上段=数値 / 下段=型・方針
   if(prev&&lastIdx>=0){
     const hkey=d.hours[lastIdx];
     const oj=paceJudge(prev.opp.cum[hkey]?(d.opp.cum[hkey]??null)/prev.opp.cum[hkey]:null);
@@ -576,9 +581,9 @@ async function loadLive(){
   $('#retreatChk').checked = !!(fc && fc.retreated);
   if(fc){
     if(fc.policy){
-      judgeCards+=`<div><div class="k">相手の方針(直近時速)</div><div class="v" style="font-size:14px">${fc.policy.label}</div><div class="k">前日同時間帯の時速比 ${fc.policy.pct}%</div></div>`;
+      typeCards+=`<div><div class="k">相手の方針(直近時速)</div><div class="v" style="font-size:14px">${fc.policy.label}</div><div class="k">前日同時間帯の時速比 ${fc.policy.pct}%</div></div>`;
     }
-    judgeCards+=patCell(fc.ours_pattern,'自団')+patCell(fc.opp_pattern,'相手');
+    typeCards+=patCell(fc.ours_pattern,'自団')+patCell(fc.opp_pattern,'相手');
   }
   // 前日同時刻のリード(日次対戦なので前日の同時点と比較できると撤退判断に便利)
   let prevLeadTxt='';
@@ -635,6 +640,7 @@ async function loadLive(){
       <div><div class="k">${oppName} 最高時速</div><div class="v">${ppk.v?.toFixed(1)??'—'}<span class="u">億/h</span>${ppk.h?` <span class="k" style="display:inline">${ppk.h}時</span>`:''}</div></div>
       ${judgeCards}
     </div>
+    ${typeCards?`<div class="strip strip2">${typeCards}</div>`:''}
     <div class="card"><h2>当日貢献度${(d.past||[]).length?(d.past.length===1?' — 点線（前日貢献度）':' — 点線（過去日貢献度）'):''}</h2><div class="chartbox"><canvas id="cumC"></canvas></div></div>
     <div class="card"><h2>時速（億/h）</h2><div class="chartbox"><canvas id="spdC"></canvas></div></div>
     ${(d.ref||[]).length?`<div class="card"><h2>参考情報</h2><table><tr><th>日程</th><th>${d.ours.name}</th><th>順位</th><th>${d.opp.name||'相手'}</th><th>順位</th><th>差</th></tr>${

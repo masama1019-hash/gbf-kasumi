@@ -1601,11 +1601,11 @@ def prewarm_loop():
 # 撤退フラグ
 #
 # 撤退は団の意思決定なので自動判定できず、かつ団員全員の画面に反映させたい。
-# そのため状態はサーバ側で持つ。切り替えは団長だけができるよう合言葉で照合する。
+# そのため状態はサーバ側で持つ。切り替えは団長だけができるようパスワードで照合する。
 #
 # Renderの無料プランは15分アイドルで停止し、書いたファイルは消える。
 # そこで永続化は既存のスプレッドシート(GAS)へ委ねる。
-# 合言葉もGASのURLも公開リポジトリには置けないので、すべて環境変数から読む。
+# パスワードもGASのURLも公開リポジトリには置けないので、すべて環境変数から読む。
 # 未設定なら「誰も切り替えられない」側に倒す。
 # キーは開催回と日付だけ。本戦は1日1試合なので相手名を含めなくても一意になる。
 # ---------------------------------------------------------------------------
@@ -1662,10 +1662,10 @@ def retreat_get(raid, date):
 def api_retreat(data):
     """撤退フラグの切り替え(POST)。(本文, HTTPステータス) を返す"""
     if not RETREAT_PW:
-        return {"error": "サーバに合言葉が設定されていません（環境変数 RETREAT_PW）"}, 503
-    # 合言葉の比較は時間差が出ないようにする
+        return {"error": "サーバにパスワードが設定されていません（環境変数 RETREAT_PW）"}, 503
+    # パスワードの比較は時間差が出ないようにする
     if not hmac.compare_digest(str(data.get("pw", "")), RETREAT_PW):
-        return {"error": "合言葉が違います"}, 403
+        return {"error": "パスワードが違います"}, 403
     raid, date = data.get("raid"), data.get("date")
     if not (raid and date):
         return {"error": "開催回と日付が必要です"}, 400
@@ -1709,7 +1709,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         try:
             n = int(self.headers.get("Content-Length") or 0)
-            if n > 4096:                       # 合言葉と数語しか来ないので上限を切る
+            if n > 4096:                       # パスワードと数語しか来ないので上限を切る
                 self._json({"error": "too large"}, 413)
                 return
             data = json.loads(self.rfile.read(n) or b"{}")

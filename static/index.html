@@ -158,8 +158,6 @@
   <div class="card">
     <div class="row">
       <input id="koranQ" placeholder="プレイヤー名 または ユーザーID" style="flex:1;min-width:180px">
-      <label style="font-size:13px;color:var(--mut)">表示</label>
-      <select id="koranDay"></select>
       <label style="font-size:12px;color:var(--mut)" title="gbfdataは毎時更新なので、新しい時刻のデータが出たら自動で取り直します"><input type="checkbox" id="koranAuto"> 自動更新</label>
       <label style="font-size:13px;color:var(--mut)">比較</label>
       <select id="koranTgt">
@@ -169,7 +167,7 @@
       </select>
       <button class="primary" onclick="loadKoran()">検索</button>
     </div>
-    <div style="font-size:11px;color:var(--mut);margin-top:6px">個人貢献度を 英雄ライン(2000位)・10万位ライン と比較。「表示」で概要(日別)か対象日の時刻毎を選択。<br>
+    <div style="font-size:11px;color:var(--mut);margin-top:6px">個人貢献度を 英雄ライン(2000位)・10万位ライン と比較。日別の推移に加え、開催中の当日（終了後は最終日）の時刻毎を自動で下に足します。<br>
       ※個ランについて順位によってはデータ取得に時間がかかる、または取得不可の場合があります。（順位帯毎に個人を検索しているため）</div>
   </div>
   <div id="koranBody"><div class="load">プレイヤー名かユーザーIDを入れて「検索」</div></div>
@@ -326,10 +324,17 @@ const mxOf=arr=>{const v=arr.filter(x=>x!=null&&!isNaN(x));return v.length?Math.
 const mxCls=(v,m)=>(m!=null&&v!=null&&Math.abs(v-m)<1e-9)?" mx":"";
 const KORAN_LBL={1:'予選1日目',2:'予選2日目',3:'インターバル',4:'本戦1日目',5:'本戦2日目',6:'本戦3日目',7:'本戦4日目'};
 function fillKoranDays(){
-  const sel=$('#koranDay'); if(!sel) return; sel.innerHTML='';
-  const o0=document.createElement('option'); o0.value=''; o0.textContent='概要(日別)'; sel.appendChild(o0);
-  (cfg.schedules||[]).slice().sort((a,b)=>a.day_of-b.day_of).forEach(s=>{
-    const o=document.createElement('option'); o.value=s.day; o.textContent=`${KORAN_LBL[s.day_of]||s.day_of}`; sel.appendChild(o);});
+  // 表示は日別のみ。時刻毎は「開いた日」のぶんを自動で足すので選択肢は要らない
+}
+// 時刻毎を出す対象日。開催中なら今日、それ以外は本人に記録がある最終日
+function koranTargetDay(rows){
+  const sch=(cfg.schedules||[]);
+  const t=gbfToday();
+  const cur=sch.find(s=>s.day===t);
+  if(cur) return cur;
+  const dos=(rows||[]).map(r=>r.day_of).filter(v=>v!=null);
+  if(!dos.length) return null;
+  return sch.find(s=>s.day_of===Math.max(...dos))||null;
 }
 // 団チャット貼り付け用の文章（例: 9時時点でこちら99.8億(40.2億)　相手14.6億(9.5億)　貢献差85.2億(30.7億)）
 function chatLine(t,o,p,os_,ps_,withSpeed){
@@ -967,10 +972,9 @@ function koranTimeProjHtml(P,s2,s1,name,confirmed){
 }
 async function loadKoran(){
   const q=$('#koranQ').value.trim(); if(!q)return;
-  const day=$('#koranDay').value;
-  $('#koranBody').innerHTML=`<div class="load">${day?'時刻毎データ取得中…(初回は30秒ほど)':'検索中…(初回は30秒ほど)'}</div>`;
+  $('#koranBody').innerHTML='<div class="load">検索中…(初回は30秒ほど)</div>';
   let d;
-  try{ d=await (await fetch('/api/koran?q='+encodeURIComponent(q)+'&raid='+$('#raidSel').value+(day?'&day='+day:''))).json(); }
+  try{ d=await (await fetch('/api/koran?q='+encodeURIComponent(q)+'&raid='+$('#raidSel').value)).json(); }
   catch(e){ $('#koranBody').innerHTML='<div class="card bad">取得に時間がかかり切断されました。もう一度「検索」を押してください</div>'; return; }
   if(d.error){$('#koranBody').innerHTML=`<div class="card bad">${d.error}</div>`;return;}
   if(d.candidates){
@@ -1013,7 +1017,9 @@ async function loadKoran(){
     ${projSection}
     <div class="card"><h2>累積貢献度の推移（億）</h2><div class="chartbox"><canvas id="kCum"></canvas></div></div>
     <div class="card"><h2>日別の比較（数値・億）</h2><div style="overflow-x:auto"><table><tr><th>日程</th><th>${d.name}</th><th>順位</th>${s2?'<th>英雄(2000位)</th><th>差</th>':''}${s1?'<th>10万位</th><th>差</th>':''}</tr>${trows}</table></div></div>
-    ${koranPast3Html(d.past3,s2,s1,d.name)}`;
+    ${koranPast3Html(d.past3,s2,s1,d.name)}
+    <div id="koranHourBox"></div>`;
+  loadKoranHour(q, koranTargetDay(d.rows), d.name, s2, s1);
   const Lx=d.rows.map(r=>r.label);
   mkChart('#kCum','line',Lx,[
     {label:d.name,data:d.rows.map(r=>r.player),borderColor:'#378ADD',area:'3d',endLabel:true,tension:0.35,borderWidth:2,pointRadius:0},
@@ -1040,6 +1046,42 @@ async function koranTick(){
   await loadKoran();
   if(KORAN_TICK===before && kRetryN<5){ kRetryN++; kTimer=setTimeout(koranTick,180000); }
   else scheduleKoranRefresh();
+}
+// 開いた日の時刻毎。概要より重い(順位が深い人は数十秒)ので、
+// 概要を先に出してから非同期で追記する(サーチの時速と同じ方式)
+async function loadKoranHour(q, sch, name, s2, s1){
+  const box=$('#koranHourBox'); if(!box||!sch) return;
+  const lbl=KORAN_LBL[sch.day_of]||sch.day;
+  box.innerHTML=`<div class="card"><h2>${lbl} の時刻毎（億・1H）</h2><div class="load">取得中…(順位が深いと1分ほどかかります)</div></div>`;
+  let d;
+  try{ d=await (await fetch('/api/koran?q='+encodeURIComponent(q)+'&raid='+$('#raidSel').value+'&day='+sch.day)).json(); }
+  catch(e){ box.innerHTML='<div class="card" style="font-size:12px;color:var(--mut)">時刻毎データの取得に失敗しました</div>'; return; }
+  if(d.error||!d.times||!d.times.length){
+    box.innerHTML=`<div class="card" style="font-size:12px;color:var(--mut)">${d.error||'この日の時刻毎データはgbfdataに未収録です'}</div>`; return;
+  }
+  const T=d.times, Lx=d.labels;
+  const pc=d.player.cum, prk=d.player.rank, psp=d.player.speed;
+  const b2=d.b2000.cum, b2s=d.b2000.speed, b1=d.b100k.cum, b1s=d.b100k.speed;
+  const dcell=v=>`<td class="${v!=null?(v>=0?'good':'bad'):''}">${v!=null?(v>=0?'+':'')+f1(v):'—'}</td>`;
+  const mP=mxOf(T.map(t=>psp[t])), m2=mxOf(T.map(t=>b2s[t])), m1=mxOf(T.map(t=>b1s[t]));
+  const trows=T.map((t,i)=>{const dd2=(pc[t]!=null&&b2[t]!=null)?pc[t]-b2[t]:null, dd1=(pc[t]!=null&&b1[t]!=null)?pc[t]-b1[t]:null;
+    return `<tr><td>${Lx[i]}</td><td>${f1(pc[t])}</td><td style="color:var(--mut)">${prk[t]?prk[t].toLocaleString('ja-JP')+'位':'—'}</td><td class="sp${mxCls(psp[t],mP)}">${f1(psp[t])}</td>`
+      +(s2?`<td>${f1(b2[t])}</td><td class="sp${mxCls(b2s[t],m2)}">${f1(b2s[t])}</td>${dcell(dd2)}`:'')
+      +(s1?`<td>${f1(b1[t])}</td><td class="sp${mxCls(b1s[t],m1)}">${f1(b1s[t])}</td>${dcell(dd1)}`:'')+`</tr>`;}).join('');
+  box.innerHTML=`
+    <div class="card"><h2>${d.label} 累積の推移（億・1H）</h2><div class="chartbox"><canvas id="kCumH"></canvas></div></div>
+    <div class="card"><h2>${d.label} 時速（億・1H）</h2><div class="chartbox"><canvas id="kSpdH"></canvas></div></div>
+    <div class="card"><h2>${d.label}（億単位）</h2><div style="overflow-x:auto"><table><tr><th>時刻</th><th>${name}</th><th>順位</th><th>時速</th>${s2?'<th>2000位</th><th>時速</th><th>差</th>':''}${s1?'<th>10万位</th><th>時速</th><th>差</th>':''}</tr>${trows}</table></div></div>`;
+  mkChart('#kCumH','line',Lx,[
+    {label:name,data:T.map(t=>pc[t]??null),borderColor:'#378ADD',area:'3d',endLabel:true,tension:0.35,borderWidth:2,pointRadius:0,spanGaps:true},
+    ...(s2?[{label:'英雄(2000位)',data:T.map(t=>b2[t]??null),borderColor:'#D85A30',endLabel:true,tension:0.35,borderWidth:2,pointRadius:0,spanGaps:true}]:[]),
+    ...(s1?[{label:'10万位',data:T.map(t=>b1[t]??null),borderColor:'#1D9E75',endLabel:true,tension:0.35,borderWidth:2,pointRadius:0,spanGaps:true}]:[])
+  ],{padRight:104});
+  mkChart('#kSpdH','line',Lx,[
+    {label:name,data:T.map(t=>psp[t]??null),borderColor:'#378ADD',tension:0.35,borderWidth:2,pointRadius:0,spanGaps:true},
+    ...(s2?[{label:'英雄(2000位)',data:T.map(t=>b2s[t]??null),borderColor:'#D85A30',tension:0.35,borderWidth:1.4,pointRadius:0,spanGaps:true}]:[]),
+    ...(s1?[{label:'10万位',data:T.map(t=>b1s[t]??null),borderColor:'#1D9E75',tension:0.35,borderWidth:1.4,pointRadius:0,spanGaps:true}]:[])
+  ]);
 }
 function koranHourlyView(d){
   const tg=$('#koranTgt').value, s2=tg!=='100k', s1=tg!=='2000';

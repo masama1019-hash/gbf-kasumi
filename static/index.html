@@ -595,14 +595,16 @@ async function loadLive(){
   // 相手団ページへのリンク
   const oppUrl=d.opp.gid?`https://game.granbluefantasy.jp/#guild/detail/${d.opp.gid}`:null;
   const oppName=d.opp.name||'相手未設定';
-  // 時速のピーク(表で強調する)。当日と前日それぞれ両団ぶん
-  const mxOs=mxOf(os), mxPs=mxOf(ps);
+  const oppNameHtml=oppUrl?`<a href="${oppUrl}" target="_blank" rel="noopener" style="color:var(--blue);text-decoration:none">${oppName} ↗</a>`:oppName;
+  // 当日の最高時速。本戦は7時開始なので、最初のスナップショット(8時)も
+  // 7→8時の1時間ぶん＝正当な時速。⚠️以前は8時を除外していて、表の強調(mxOf)と
+  // 食い違っていた(表は50.9を最大と示すのにカードは9時の49.9を出す、など)
+  const peak=(sp,hrs)=>{let mv=null,mh=null;for(let i=0;i<sp.length;i++){if(sp[i]!=null&&(mv==null||sp[i]>mv)){mv=sp[i];mh=hrs[i];}}return{v:mv,h:mh};};
+  const opk=peak(os,H), ppk=peak(ps,H);
+  // 表の強調はカードのピークと同じ値を使う(別々に求めるとまたずれる)
+  const mxOs=opk.v, mxPs=ppk.v;
   const mxPo=prev?mxOf(Object.values(prev.ours.speed||{})):null;
   const mxPp=prev?mxOf(Object.values(prev.opp.speed||{})):null;
-  const oppNameHtml=oppUrl?`<a href="${oppUrl}" target="_blank" rel="noopener" style="color:var(--blue);text-decoration:none">${oppName} ↗</a>`:oppName;
-  // 当日の最高時速(8時は日始からの累積のため除外)
-  const peak=(sp,hrs)=>{let mv=null,mh=null;for(let i=1;i<sp.length;i++){if(sp[i]!=null&&(mv==null||sp[i]>mv)){mv=sp[i];mh=hrs[i];}}return{v:mv,h:mh};};
-  const opk=peak(os,H), ppk=peak(ps,H);
   // 判断バンド。毎時見るのは「勝っているか・どうすべきか」なので、リード・勝率・
   // 推奨アクションを1枚にまとめて最上部に置く。素の数字は下のストリップへ。
   const mxCum=Math.max(lo??0, lp??0)||1;

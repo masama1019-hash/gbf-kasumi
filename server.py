@@ -389,11 +389,44 @@ def remaining_share(pat, hk):
     return round(min(1.0, max(0.0, rest)), 3)
 
 
-def battle_advice(cur_do, win, o_pat=None, p_pat=None, lead=None, hk=None, proj_lead=None):
+# 翌日のマッチングが「前日の貢献度」で決まる日 = 本戦2日目・3日目。
+# つまり前日を抑える意味があるのは本戦1日目・2日目だけ。
+# 本戦4日目のマッチングは大枠で決まるので、3日目に抑えても翌日の相手は変わらない
+MATCH_BY_YESTERDAY = {5, 6}       # 本戦2日目・3日目のマッチングが前日貢献度ベース
+
+
+def retreat_advice(cur_do, note=""):
+    """団として撤退したあとの推奨アクション。
+    基準は「翌日のマッチングにどう効くか」。ただし効くのは本戦1・2日目だけで、
+    Day4のマッチングは大枠で決まるため3日目に抑えても翌日の相手は変わらない"""
+    if cur_do + 1 in MATCH_BY_YESTERDAY:          # 本戦1・2日目 → 翌日は前日貢献度ベース
+        nxt = cur_do - 2                          # 翌日の表示名(day_of 4=本戦1日目なので -3、その翌日で +1)
+        return {"label": "撤退済み・抑える", "tone": "good",
+                "text": f"{note}撤退済みです。本戦{nxt}日目のマッチングは"
+                        f"今日の貢献度で決まるので、ここから抑えるほど翌日の相手が楽になります。"
+                        f"日課消化や武器掘りはフルオートで流す程度に留めてください"}
+    if cur_do == 6:                               # 本戦3日目 → 翌日(Day4)は大枠ベース
+        return {"label": "撤退済み・個人優先", "tone": "mid",
+                "text": f"{note}撤退済みです。本戦4日目のマッチングは大枠で決まるため、"
+                        f"今日抑えても翌日の相手は変わりません。抑える必要は無いので、"
+                        f"個人ランキングのために全力で走って構いません。"
+                        f"余裕があれば体力・日課消化・肉の温存を優先してください"}
+    return {"label": "撤退済み・個人優先", "tone": "mid",
+            "text": f"{note}撤退済みで、翌日のマッチングもありません。団としての勝敗は決したので、"
+                    f"個人ランキング優先で出し切って構いません。"
+                    f"余裕があれば体力と肉を残す方向で調整してください"}
+
+
+def battle_advice(cur_do, win, o_pat=None, p_pat=None, lead=None, hk=None, proj_lead=None,
+                  retreated=False):
     """本戦の日・勝敗見込み・両団の時間帯パターンから推奨アクション。
-    Day1/2は翌日マッチングが前日貢献度で決まるため、決着後は抑えるほど有利。"""
+    Day1/2は翌日マッチングが前日貢献度で決まるため、決着後は抑えるほど有利。
+    retreated=True(団長が画面で撤退を宣言した状態)なら勝敗の話はやめて撤退後の指針を出す"""
     if not (4 <= cur_do <= 7):
         return None
+    if retreated:
+        pn = f"相手は{p_pat['label']}。" if p_pat else ""
+        return retreat_advice(cur_do, pn)
     # パターンの読み(相手が後半型なら、リードがあっても警戒が要る)
     note = ""
     risk = False
@@ -421,15 +454,20 @@ def battle_advice(cur_do, win, o_pat=None, p_pat=None, lead=None, hk=None, proj_
                     "text": f"{note}逆転は困難。早めに切り上げれば{nxt}のマッチングが有利になり、戦力も残せます"}
         return {"label": "継続", "tone": "mid", "text": f"{note}接戦。取れる試合なので押し切りましょう"}
     if cur_do == 6:
+        # 本戦4日目のマッチングは大枠で決まるので、3日目を抑えても翌日の相手は変わらない。
+        # 抑制を促すのではなく「余裕があれば温存」に留める
         if win >= 85 and not risk:
-            return {"label": "Day4に温存", "tone": "good",
-                    "text": f"{note}勝ちが見えました。余力は本戦4日目に回すと最終日の勝率が上がります"}
+            return {"label": "勝勢", "tone": "good",
+                    "text": f"{note}勝ちが見えました。本戦4日目のマッチングは大枠で決まるため、"
+                            f"ここを抑えても翌日の相手は変わりません。走って構いませんが、"
+                            f"余裕があれば体力・日課消化・肉を最終日に残しておくと楽です"}
         if win >= 85 and risk:
             return {"label": "リード維持", "tone": "mid",
-                    "text": f"{note}相手の伸びしろが残っています。振り切るまでは維持し、決着後にDay4へ余力を回しましょう"}
+                    "text": f"{note}相手の伸びしろが残っています。振り切るまでは維持しましょう"}
         if win <= 15:
             return {"label": "撤退推奨", "tone": "good",
-                    "text": f"{note}逆転困難。本戦4日目に戦力を残しましょう"}
+                    "text": f"{note}逆転困難。撤退して個人ランキングに切り替える判断どころです。"
+                            f"本戦4日目のマッチングには影響しないので、抑える必要はありません"}
         return {"label": "継続", "tone": "mid", "text": f"{note}接戦。ここは取りに行く場面"}
     if win >= 85 and risk:
         return {"label": "最終日・振り切る", "tone": "mid",
@@ -457,6 +495,8 @@ def api_live(q):
     day_label = {s["day"]: f"本戦{s['day_of'] - 3}日目" for s in battle}
     past_n = int(q.get("past", ["0"])[0])
     past_dates = [s["day"] for s in battle if s["day"] < date][-past_n:] if past_n else []
+    # 撤退したかは自動判定できない(団の意思決定)ので、画面のチェックから受け取る
+    retreated = q.get("retreat", ["0"])[0] == "1"
 
     opp_q = (q.get("opp", [None])[0] or "").strip()
     if not opp_q:
@@ -627,8 +667,10 @@ def api_live(q):
                     "policy": policy, "prior": round(prior * 100),
                     "basis": "前日推移ベース" if prev_day else "平均時速ベース",
                     "ours_pattern": o_pat, "opp_pattern": p_pat,
+                    "retreated": retreated,
                     "advice": battle_advice(cur_do, win, o_pat, p_pat,
-                                            round(o_now - p_now, 1), hk, round(fo - fp, 1))}
+                                            round(o_now - p_now, 1), hk, round(fo - fp, 1),
+                                            retreated)}
 
     # 過去開催の総合順位推移(最終day_ofのrank)
     # 直近3開催の 予選→本戦1〜4 の総合順位推移

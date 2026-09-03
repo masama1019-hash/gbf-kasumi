@@ -86,6 +86,7 @@
       </select>
       <button class="primary" onclick="loadLive()">更新</button>
       <label style="font-size:12px;color:var(--mut)" title="gbfdataは毎時更新なので、新しい時刻のデータが出たら自動で取り直します"><input type="checkbox" id="autoRef"> 更新時に自動更新</label>
+      <label id="retreatLabel" style="font-size:12px;color:var(--mut)" title="団として撤退したらチェック。推奨アクションが撤退後の指針に切り替わります。日付と相手ごとに記憶します"><input type="checkbox" id="retreatChk"> 撤退済み</label>
     </div>
   </div>
   <div id="liveBody"><div class="load">「更新」を押すと集計します（初回は30秒ほどかかります）</div></div>
@@ -235,13 +236,18 @@ function fillDates(){
   }else{
     sel.selectedIndex=0;            // 予選・IB・開催期間外は「予選」
   }
-  sel.onchange=syncYosenUI; syncYosenUI();
+  sel.onchange=()=>{ syncYosenUI(); loadRetreat(); }; syncYosenUI();
+  $('#retreatChk').onchange=()=>{ saveRetreat(); loadLive(); };
+  $('#oppInput').onchange=loadRetreat;
+  loadRetreat();
 }
 function syncYosenUI(){
   const yo=$('#dateSel').value==='yosen';
   // 予選は相手団不要・過去比較は前回予選のみ → グレーアウト
-  ['#oppInput','#pastSel'].forEach(s=>{const e=$(s); e.disabled=yo; e.style.opacity=yo?0.4:1;});
+  ['#oppInput','#pastSel','#retreatChk'].forEach(s=>{const e=$(s); e.disabled=yo; e.style.opacity=yo?0.4:1;});
   $('#oppLabel').style.opacity=yo?0.4:1; $('#pastLabel').style.opacity=yo?0.4:1;
+  $('#retreatLabel').style.opacity=yo?0.4:1;
+  if(!yo) loadRetreat();
 }
 async function fetchJSON(url,tries=4){
   for(let i=0;i<tries;i++){
@@ -406,7 +412,7 @@ async function loadYosen(){
     ${chatNoticeYosenHtml(L,oc,bc,os,bs,orank)}`;
   mkChart('#yCum','line',L,[
     {label:'霞桜団',data:oc,borderColor:'#378ADD',area:'3d',endLabel:true,tension:.35,pointRadius:0,borderWidth:2,spanGaps:true},
-    {label:'300位',data:bc,borderColor:'#D85A30',area:'33',endLabel:true,tension:.35,pointRadius:0,borderWidth:2,spanGaps:true},
+    {label:'300位',data:bc,borderColor:'#D85A30',endLabel:true,tension:.35,pointRadius:0,borderWidth:2,spanGaps:true},
     ...(p?[{label:'前回 霞桜団',data:pcum('ours'),borderColor:'#378ADD',borderDash:[4,3],tension:.35,pointRadius:0,borderWidth:1.2,spanGaps:true},
          {label:'前回 300位',data:pcum('border'),borderColor:'#D85A30',borderDash:[4,3],tension:.35,pointRadius:0,borderWidth:1.2,spanGaps:true}]:[]),
     ...(projFinal!=null?[{label:'300位 着地予想',data:L.map(()=>projFinal),borderColor:'#993C1D',borderDash:[2,3],tension:0,pointRadius:0,borderWidth:1.2}]:[])],
@@ -417,13 +423,25 @@ async function loadYosen(){
     ...(p?[{label:'前回 霞桜団',data:pspd('ours'),borderColor:'#378ADD',borderDash:[4,3],tension:.35,pointRadius:0,borderWidth:1.2,spanGaps:true},
          {label:'前回 300位',data:pspd('border'),borderColor:'#D85A30',borderDash:[4,3],tension:.35,pointRadius:0,borderWidth:1.2,spanGaps:true}]:[])]);
 }
-function pickOpp(gid){ $('#oppInput').value=gid; loadLive(); }
+// 撤退は団の意思決定なので自動判定できない。開催回・日付・相手ごとにブラウザへ覚えさせる
+function retreatKey(){
+  return `retreat:${$('#raidSel').value}:${$('#dateSel').value}:${$('#oppInput').value.trim()}`;
+}
+function loadRetreat(){
+  try{ $('#retreatChk').checked = localStorage.getItem(retreatKey())==='1'; }
+  catch(e){ /* プライベートモード等でlocalStorageが使えなくても動かす */ }
+}
+function saveRetreat(){
+  try{ localStorage.setItem(retreatKey(), $('#retreatChk').checked?'1':'0'); }catch(e){}
+}
+function pickOpp(gid){ $('#oppInput').value=gid; loadRetreat(); loadLive(); }
 async function loadLive(){
   if($('#dateSel').value==='yosen'){ return loadYosen(); }
   const past=$('#pastSel').value;
   $('#liveBody').innerHTML='<div class="load">データ取得中…(初回や過去比較ありは1〜2分かかることがあります)</div>';
   const p=new URLSearchParams({date:$('#dateSel').value,past,raid:$('#raidSel').value});
   if($('#oppInput').value.trim()) p.set('opp',$('#oppInput').value.trim());
+  if($('#retreatChk').checked) p.set('retreat','1');
   let d;
   try{ d=await (await fetch('/api/live?'+p)).json(); }
   catch(e){ $('#liveBody').innerHTML='<div class="card bad">取得に時間がかかり切断されました。もう一度「更新」を押してください（続きはキャッシュされているため、リトライごとに速くなります）</div>'; return; }
@@ -528,7 +546,7 @@ async function loadLive(){
     return sets;});
   mkChart('#cumC','line',H,[
     {label:d.ours.name,data:oc,borderColor:'#378ADD',area:'3d',endLabel:true,tension:.35,pointRadius:0,borderWidth:2,spanGaps:true},
-    {label:d.opp.name||'相手',data:pc,borderColor:'#D85A30',area:'33',endLabel:true,tension:.35,pointRadius:0,borderWidth:2,spanGaps:true},
+    {label:d.opp.name||'相手',data:pc,borderColor:'#D85A30',endLabel:true,tension:.35,pointRadius:0,borderWidth:2,spanGaps:true},
     ...pastSets('cum')],{padRight:88});
   mkChart('#spdC','line',H,[
     {label:d.ours.name,data:os,borderColor:'#378ADD',tension:.35,pointRadius:0,borderWidth:2,spanGaps:true},
@@ -712,7 +730,7 @@ function scoutPrevView(prev,oppName){
   const lab=L.map(hLbl);
   mkChart('#scPrevCum','line',lab,[
     {label:'霞桜団',data:L.map(t=>oc[t]??null),borderColor:'#378ADD',area:'3d',endLabel:true,tension:.35,borderWidth:2,pointRadius:0,spanGaps:true},
-    {label:oppName,data:L.map(t=>pc[t]??null),borderColor:'#D85A30',area:'33',endLabel:true,tension:.35,borderWidth:2,pointRadius:0,spanGaps:true}
+    {label:oppName,data:L.map(t=>pc[t]??null),borderColor:'#D85A30',endLabel:true,tension:.35,borderWidth:2,pointRadius:0,spanGaps:true}
   ],{padRight:88});
   mkChart('#scPrevSpd','line',lab,[
     {label:'霞桜団',data:L.map(t=>os[t]??null),borderColor:'#378ADD',tension:.35,borderWidth:2,pointRadius:0,spanGaps:true},

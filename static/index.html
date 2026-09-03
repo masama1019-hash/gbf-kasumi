@@ -506,7 +506,7 @@ const PAT_C={朝:'#E8B44A',昼:'#5AA8E8',夕:'#D8894A',夜:'#6E6BAF'};
 function patCell(p,who){
   if(!p) return '';
   const seg=Object.entries(p.pct).map(([k,v])=>`<i style="flex:${v};background:${PAT_C[k]}" title="${k} ${v}%"></i>`).join('');
-  const lg=Object.entries(p.pct).map(([k,v])=>`<span>${k}${v}</span>`).join('');
+  const lg=Object.entries(p.pct).map(([k,v])=>`<span>${k}${v}%</span>`).join('');
   return `<div><div class="k">${who} パターン</div><div class="v" style="font-size:14px;margin-bottom:0">${p.label}</div>
     <div class="pat">${seg}</div><div class="patlg">${lg}</div></div>`;
 }

@@ -7,6 +7,7 @@
 
 起動:  python3 /Applications/gbf/webapp/server.py   → http://localhost:8930
 """
+import hmac
 import json
 import os
 import re
@@ -495,8 +496,8 @@ def api_live(q):
     day_label = {s["day"]: f"本戦{s['day_of'] - 3}日目" for s in battle}
     past_n = int(q.get("past", ["0"])[0])
     past_dates = [s["day"] for s in battle if s["day"] < date][-past_n:] if past_n else []
-    # 撤退したかは自動判定できない(団の意思決定)ので、画面のチェックから受け取る
-    retreated = q.get("retreat", ["0"])[0] == "1"
+    # 撤退したかは自動判定できない(団の意思決定)。団長が切り替えた値をサーバから読む
+    retreated = retreat_get(raid, date)
 
     opp_q = (q.get("opp", [None])[0] or "").strip()
     if not opp_q:
@@ -1596,6 +1597,91 @@ def prewarm_loop():
             time.sleep(60)
 
 
+# ---------------------------------------------------------------------------
+# 撤退フラグ
+#
+# 撤退は団の意思決定なので自動判定できず、かつ団員全員の画面に反映させたい。
+# そのため状態はサーバ側で持つ。切り替えは団長だけができるよう合言葉で照合する。
+#
+# Renderの無料プランは15分アイドルで停止し、書いたファイルは消える。
+# そこで永続化は既存のスプレッドシート(GAS)へ委ねる。
+# 合言葉もGASのURLも公開リポジトリには置けないので、すべて環境変数から読む。
+# 未設定なら「誰も切り替えられない」側に倒す。
+# キーは開催回と日付だけ。本戦は1日1試合なので相手名を含めなくても一意になる。
+# ---------------------------------------------------------------------------
+RETREAT_PW = os.environ.get("RETREAT_PW", "")
+GAS_URL = os.environ.get("GAS_URL", "")
+GAS_SSID = os.environ.get("GAS_SSID", "")
+GAS_SHEET = os.environ.get("GAS_SHEET", "撤退")
+GAS_CELL = os.environ.get("GAS_CELL", "A1")
+RETREAT_TTL = 60                      # スプレッドシートを読み直す間隔(秒)
+_retreat = {"at": 0.0, "map": None}   # map: {"83|2026-06-24": True}
+_retreat_lock = threading.Lock()
+
+
+def _gas(payload, timeout=25):
+    """GAS Web Appへのリクエスト。未設定なら None を返し、呼び出し側で握りつぶす"""
+    if not (GAS_URL and GAS_SSID):
+        return None
+    body = json.dumps({"ssid": GAS_SSID, "sheet": GAS_SHEET, **payload}).encode()
+    req = urllib.request.Request(GAS_URL, data=body,
+                                 headers={"Content-Type": "application/json"})
+    try:
+        return json.load(urllib.request.urlopen(req, timeout=timeout))
+    except Exception:
+        return None
+
+
+def retreat_map():
+    """撤退フラグ一覧。TTLの間はメモリのものを使う(毎リクエストGASを叩かない)"""
+    now = time.time()
+    with _retreat_lock:
+        if _retreat["map"] is not None and now - _retreat["at"] < RETREAT_TTL:
+            return _retreat["map"]
+    d = _gas({"read": f"{GAS_CELL}:{GAS_CELL}"})
+    m = {}
+    if d and d.get("status") == "ok":
+        raw = ((d.get("values") or [[""]])[0] or [""])[0]
+        if isinstance(raw, str) and raw.strip().startswith("{"):
+            try:
+                m = {k: bool(v) for k, v in json.loads(raw).items()}
+            except Exception:
+                m = {}
+    with _retreat_lock:
+        # GASが未設定/失敗のときは、既に持っている値を捨てない
+        if d is None and _retreat["map"] is not None:
+            return _retreat["map"]
+        _retreat["map"], _retreat["at"] = m, now
+        return m
+
+
+def retreat_get(raid, date):
+    return bool(retreat_map().get(f"{raid}|{date}"))
+
+
+def api_retreat(data):
+    """撤退フラグの切り替え(POST)。(本文, HTTPステータス) を返す"""
+    if not RETREAT_PW:
+        return {"error": "サーバに合言葉が設定されていません（環境変数 RETREAT_PW）"}, 503
+    # 合言葉の比較は時間差が出ないようにする
+    if not hmac.compare_digest(str(data.get("pw", "")), RETREAT_PW):
+        return {"error": "合言葉が違います"}, 403
+    raid, date = data.get("raid"), data.get("date")
+    if not (raid and date):
+        return {"error": "開催回と日付が必要です"}, 400
+    key, on = f"{raid}|{date}", bool(data.get("on"))
+    m = dict(retreat_map())
+    if on:
+        m[key] = True
+    else:
+        m.pop(key, None)
+    saved = _gas({"cell": GAS_CELL, "value": json.dumps(m, ensure_ascii=False)})
+    with _retreat_lock:
+        _retreat["map"], _retreat["at"] = m, time.time()
+    return {"status": "ok", "on": on, "raid": raid, "date": date,
+            "persisted": bool(saved and saved.get("status") == "ok")}, 200
+
+
 ROUTES = {"/api/config": api_config, "/api/live": api_live,
           "/api/scout": api_scout, "/api/yosen": api_yosen, "/api/koran": api_koran,
           "/api/scout_speed": api_scout_speed}
@@ -1608,6 +1694,29 @@ class Handler(BaseHTTPRequestHandler):
 
     def log_message(self, fmt, *args):
         pass
+
+    def _json(self, obj, code=200):
+        body = json.dumps(obj, ensure_ascii=False).encode()
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def do_POST(self):
+        if urllib.parse.urlparse(self.path).path != "/api/retreat":
+            self._json({"error": "not found"}, 404)
+            return
+        try:
+            n = int(self.headers.get("Content-Length") or 0)
+            if n > 4096:                       # 合言葉と数語しか来ないので上限を切る
+                self._json({"error": "too large"}, 413)
+                return
+            data = json.loads(self.rfile.read(n) or b"{}")
+            body, code = api_retreat(data if isinstance(data, dict) else {})
+        except Exception as e:
+            body, code = {"error": str(e)}, 500
+        self._json(body, code)
 
     def do_GET(self):
         parsed = urllib.parse.urlparse(self.path)

@@ -86,7 +86,7 @@
       </select>
       <button class="primary" onclick="loadLive()">更新</button>
       <label style="font-size:12px;color:var(--mut)" title="gbfdataは毎時更新なので、新しい時刻のデータが出たら自動で取り直します"><input type="checkbox" id="autoRef"> 更新時に自動更新</label>
-      <label id="retreatLabel" style="font-size:12px;color:var(--mut)" title="団として撤退したらチェック。推奨アクションが撤退後の指針に切り替わります。日付と相手ごとに記憶します"><input type="checkbox" id="retreatChk"> 撤退済み</label>
+      <label id="retreatLabel" style="font-size:12px;color:var(--mut)" title="団として撤退したらチェック。切り替えには合言葉が必要で、団員全員の画面に反映されます"><input type="checkbox" id="retreatChk"> 撤退済み</label>
     </div>
   </div>
   <div id="liveBody"><div class="load">「更新」を押すと集計します（初回は30秒ほどかかります）</div></div>
@@ -236,10 +236,8 @@ function fillDates(){
   }else{
     sel.selectedIndex=0;            // 予選・IB・開催期間外は「予選」
   }
-  sel.onchange=()=>{ syncYosenUI(); loadRetreat(); }; syncYosenUI();
-  $('#retreatChk').onchange=()=>{ saveRetreat(); loadLive(); };
-  $('#oppInput').onchange=loadRetreat;
-  loadRetreat();
+  sel.onchange=syncYosenUI; syncYosenUI();
+  $('#retreatChk').onchange=toggleRetreat;
 }
 function syncYosenUI(){
   const yo=$('#dateSel').value==='yosen';
@@ -247,7 +245,6 @@ function syncYosenUI(){
   ['#oppInput','#pastSel','#retreatChk'].forEach(s=>{const e=$(s); e.disabled=yo; e.style.opacity=yo?0.4:1;});
   $('#oppLabel').style.opacity=yo?0.4:1; $('#pastLabel').style.opacity=yo?0.4:1;
   $('#retreatLabel').style.opacity=yo?0.4:1;
-  if(!yo) loadRetreat();
 }
 async function fetchJSON(url,tries=4){
   for(let i=0;i<tries;i++){
@@ -423,25 +420,43 @@ async function loadYosen(){
     ...(p?[{label:'前回 霞桜団',data:pspd('ours'),borderColor:'#378ADD',borderDash:[4,3],tension:.35,pointRadius:0,borderWidth:1.2,spanGaps:true},
          {label:'前回 300位',data:pspd('border'),borderColor:'#D85A30',borderDash:[4,3],tension:.35,pointRadius:0,borderWidth:1.2,spanGaps:true}]:[])]);
 }
-// 撤退は団の意思決定なので自動判定できない。開催回・日付・相手ごとにブラウザへ覚えさせる
-function retreatKey(){
-  return `retreat:${$('#raidSel').value}:${$('#dateSel').value}:${$('#oppInput').value.trim()}`;
+// 撤退は団の意思決定なので自動判定できず、団員全員の画面に反映させたい。
+// 状態はサーバが持ち、切り替えは合言葉を知っている団長だけができる。
+// 合言葉はこのタブの間だけ覚える(sessionStorage)。保存も送信もしない。
+function retreatPw(){
+  let pw='';
+  try{ pw=sessionStorage.getItem('retreatPw')||''; }catch(e){}
+  if(!pw){
+    pw=prompt('撤退の切り替えには合言葉が必要です')||'';
+    if(pw){ try{ sessionStorage.setItem('retreatPw',pw); }catch(e){} }
+  }
+  return pw;
 }
-function loadRetreat(){
-  try{ $('#retreatChk').checked = localStorage.getItem(retreatKey())==='1'; }
-  catch(e){ /* プライベートモード等でlocalStorageが使えなくても動かす */ }
+async function toggleRetreat(){
+  const on=$('#retreatChk').checked;
+  const pw=retreatPw();
+  if(!pw){ $('#retreatChk').checked=!on; return; }
+  let r;
+  try{
+    r=await (await fetch('/api/retreat',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({raid:$('#raidSel').value,date:$('#dateSel').value,on,pw})})).json();
+  }catch(e){ r={error:'通信できませんでした'}; }
+  if(r.error){
+    try{ sessionStorage.removeItem('retreatPw'); }catch(e){}   // 合言葉が違うなら覚え直す
+    $('#retreatChk').checked=!on;
+    alert(r.error);
+    return;
+  }
+  if(!r.persisted) alert('切り替えましたが、保存先(スプレッドシート)に書けませんでした。サーバが再起動すると戻ります');
+  loadLive();
 }
-function saveRetreat(){
-  try{ localStorage.setItem(retreatKey(), $('#retreatChk').checked?'1':'0'); }catch(e){}
-}
-function pickOpp(gid){ $('#oppInput').value=gid; loadRetreat(); loadLive(); }
+function pickOpp(gid){ $('#oppInput').value=gid; loadLive(); }
 async function loadLive(){
   if($('#dateSel').value==='yosen'){ return loadYosen(); }
   const past=$('#pastSel').value;
   $('#liveBody').innerHTML='<div class="load">データ取得中…(初回や過去比較ありは1〜2分かかることがあります)</div>';
   const p=new URLSearchParams({date:$('#dateSel').value,past,raid:$('#raidSel').value});
   if($('#oppInput').value.trim()) p.set('opp',$('#oppInput').value.trim());
-  if($('#retreatChk').checked) p.set('retreat','1');
   let d;
   try{ d=await (await fetch('/api/live?'+p)).json(); }
   catch(e){ $('#liveBody').innerHTML='<div class="card bad">取得に時間がかかり切断されました。もう一度「更新」を押してください（続きはキャッシュされているため、リトライごとに速くなります）</div>'; return; }
@@ -472,6 +487,8 @@ async function loadLive(){
   }
   // 相手方針 & 勝率予想
   const fc=d.forecast;
+  // 撤退はサーバが持つ状態。誰が開いても同じ表示になるよう、応答で上書きする
+  $('#retreatChk').checked = !!(fc && fc.retreated);
   if(fc){
     if(fc.policy){
       const tone={bad:['#fcebeb','#A32D2D'],mid:['#faeeda','#854F0B'],good:['#e1f5ee','#0F6E56']}[fc.policy.tone];

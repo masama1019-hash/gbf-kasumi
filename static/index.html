@@ -24,6 +24,9 @@
   main { max-width:860px; margin:0 auto; padding:16px; }
   .card { background:var(--card); border-radius:12px; padding:16px; margin-bottom:14px; box-shadow:0 1px 3px rgba(0,0,0,.06); }
   .row { display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+  /* チェックボックスは1グループに。個別に折り返して1つだけ次行へ落ちるのを防ぐ */
+  .chks { display:flex; gap:14px; align-items:center; }
+  .chks label { font-size:12px; color:var(--mut); white-space:nowrap; display:flex; align-items:center; gap:4px; }
   .metrics { display:grid; grid-template-columns:repeat(auto-fit,minmax(130px,1fr)); gap:10px; margin-bottom:14px; }
   .metric { background:var(--card); border-radius:10px; padding:12px; box-shadow:0 1px 3px rgba(0,0,0,.06); }
   .metric .l { font-size:12px; color:var(--mut); }
@@ -33,6 +36,50 @@
   .metric.opp  { background:#fdf4f0; box-shadow:inset 3px 0 0 var(--red),  0 1px 3px rgba(0,0,0,.06); }
   .metric.hero { background:#fdf4f0; box-shadow:inset 3px 0 0 var(--red),  0 1px 3px rgba(0,0,0,.06); }
   .metric.p100k{ background:#eff9f5; box-shadow:inset 3px 0 0 var(--green),0 1px 3px rgba(0,0,0,.06); }
+  /* ---- 本戦の判断バンド(hero)と数値ストリップ ---- */
+  .hero { background:var(--card); border:1px solid #e3e8ee; border-radius:12px;
+          box-shadow:0 1px 3px rgba(28,39,51,.07); overflow:hidden; }
+  .heroTop { display:grid; grid-template-columns:auto 1fr auto; gap:16px; align-items:center; padding:15px 18px; }
+  @media (max-width:620px){ .heroTop { grid-template-columns:1fr; gap:10px; } }
+  .heroLead .k, .heroWin .k { font-size:11.5px; color:var(--mut); }
+  .heroLead .v { font-size:32px; font-weight:700; letter-spacing:-.02em; line-height:1.15; }
+  .heroWin { text-align:right; }
+  .heroWin .v { font-size:26px; font-weight:700; letter-spacing:-.02em; }
+  .heroMid { min-width:0; }
+  .heroMid .st { font-size:13px; font-weight:600; margin-bottom:5px; }
+  .heroMid .sub { font-size:11px; color:var(--mut); margin-top:5px; }
+  .heroAct { border-top:1px solid #e3e8ee; padding:12px 18px; display:flex; gap:11px;
+             align-items:flex-start; background:var(--bg); }
+  .heroAct .tx { font-size:12.5px; color:var(--mut); line-height:1.6; }
+  .bar { height:6px; border-radius:3px; background:rgba(127,139,153,.16); overflow:hidden; }
+  .bar i { display:block; height:100%; border-radius:3px; }
+  /* 「悪い」を赤にしない。相手団の赤(--red)と見分けが付かないため、記号と語と濃いインクで示す */
+  .up { color:var(--green); font-weight:700; }
+  .dn { color:var(--tx); font-weight:700; }
+  .up .mk, .dn .mk { font-size:.8em; margin-right:2px; }
+  .strip { display:grid; grid-template-columns:repeat(auto-fit,minmax(132px,1fr)); gap:1px;
+           background:#e3e8ee; border:1px solid #e3e8ee; border-radius:10px;
+           overflow:hidden; margin-top:10px; margin-bottom:14px; }
+  /* 直接の子だけに当てる。`.strip div` だと内側のバーにも padding と背景が乗って潰れる */
+  .strip > div { background:var(--card); padding:9px 12px; display:flex; flex-direction:column; }
+  .strip .k { font-size:11px; color:var(--mut); }
+  /* 高さが揃わない(パターンはバーぶん高い)ので、値は残りの空きの中央に置く */
+  .strip .v { font-size:16px; font-weight:600; margin:auto 0; }
+  .strip .v .u { font-size:10.5px; color:var(--mut); font-weight:600; }
+  .pat { display:flex; height:7px; border-radius:4px; overflow:hidden; margin-top:5px; gap:2px; }
+  .pat i { display:block; }
+  .patlg { display:flex; gap:4px 8px; margin-top:5px; font-size:10.5px; color:var(--mut); flex-wrap:wrap; }
+  .patlg span { white-space:nowrap; }
+  /* ---- 順位帯のマス目 ---- */
+  .hm { display:grid; gap:3px; font-size:11px; overflow-x:auto; }
+  .hm .hd { font-size:10.5px; color:var(--mut); text-align:center; padding-bottom:2px; }
+  .hm .rl { font-size:11.5px; color:var(--mut); display:flex; align-items:center; white-space:nowrap;
+            overflow:hidden; text-overflow:ellipsis; }
+  .hm .cell { height:30px; border-radius:5px; display:flex; align-items:center; justify-content:center;
+              font-weight:600; font-size:11px; font-variant-numeric:tabular-nums; }
+  .hmkey { display:flex; gap:12px; flex-wrap:wrap; margin-top:11px; font-size:11px; color:var(--mut); }
+  .hmkey span { display:flex; align-items:center; gap:5px; }
+  .hmkey i { width:13px; height:13px; border-radius:3px; display:block; }
   select,input,button { font-size:14px; padding:8px 10px; border:1px solid #d5dae0; border-radius:8px; background:#fff; }
   button.primary { background:var(--blue); color:#fff; border:none; cursor:pointer; }
   .minitabs { display:flex; gap:6px; margin-bottom:10px; }
@@ -77,7 +124,7 @@
       <label style="font-size:13px;color:var(--mut)">対象日</label>
       <select id="dateSel"></select>
       <label id="oppLabel" style="font-size:13px;color:var(--mut)">相手</label>
-      <input id="oppInput" placeholder="相手団名 または 団ID" style="flex:1;min-width:140px">
+      <input id="oppInput" placeholder="相手団名 または 団ID" style="flex:1;min-width:120px">
       <label id="pastLabel" style="font-size:13px;color:var(--mut)">過去比較</label>
       <select id="pastSel">
         <option value="0">なし</option>
@@ -85,8 +132,10 @@
         <option value="9">全本戦日</option>
       </select>
       <button class="primary" onclick="loadLive()">更新</button>
-      <label style="font-size:12px;color:var(--mut)" title="gbfdataは毎時更新なので、新しい時刻のデータが出たら自動で取り直します"><input type="checkbox" id="autoRef"> 更新時に自動更新</label>
-      <label id="retreatLabel" style="font-size:12px;color:var(--mut)" title="団として撤退したらチェック。切り替えにはパスワードが必要で、団員全員の画面に反映されます"><input type="checkbox" id="retreatChk"> 撤退済み</label>
+      <span class="chks">
+        <label title="gbfdataは毎時更新なので、新しい時刻のデータが出たら自動で取り直します"><input type="checkbox" id="autoRef"> 自動更新</label>
+        <label id="retreatLabel" title="団として撤退したらチェック。切り替えにはパスワードが必要で、団員全員の画面に反映されます"><input type="checkbox" id="retreatChk"> 撤退済み</label>
+      </span>
     </div>
   </div>
   <div id="liveBody"><div class="load">「更新」を押すと集計します（初回は30秒ほどかかります）</div></div>
@@ -109,7 +158,7 @@
       <input id="koranQ" placeholder="プレイヤー名 または ユーザーID" style="flex:1;min-width:180px">
       <label style="font-size:13px;color:var(--mut)">表示</label>
       <select id="koranDay"></select>
-      <label style="font-size:12px;color:var(--mut)" title="gbfdataは毎時更新なので、新しい時刻のデータが出たら自動で取り直します"><input type="checkbox" id="koranAuto"> 更新時に自動更新</label>
+      <label style="font-size:12px;color:var(--mut)" title="gbfdataは毎時更新なので、新しい時刻のデータが出たら自動で取り直します"><input type="checkbox" id="koranAuto"> 自動更新</label>
       <label style="font-size:13px;color:var(--mut)">比較</label>
       <select id="koranTgt">
         <option value="both">両方</option>
@@ -450,6 +499,42 @@ async function toggleRetreat(){
   if(!r.persisted) alert('切り替えましたが、保存先(スプレッドシート)に書けませんでした。サーバが再起動すると戻ります');
   loadLive();
 }
+// 時間帯パターンを4分割バーで見せる。「朝36% 昼23%…」の文字列だと折り返して読めない
+const PAT_C={朝:'#E8B44A',昼:'#5AA8E8',夕:'#D8894A',夜:'#6E6BAF'};
+function patCell(p,who){
+  if(!p) return '';
+  const seg=Object.entries(p.pct).map(([k,v])=>`<i style="flex:${v};background:${PAT_C[k]}" title="${k} ${v}%"></i>`).join('');
+  const lg=Object.entries(p.pct).map(([k,v])=>`<span>${k}${v}</span>`).join('');
+  return `<div><div class="k">${who} パターン</div><div class="v" style="font-size:14px;margin-bottom:0">${p.label}</div>
+    <div class="pat">${seg}</div><div class="patlg">${lg}</div></div>`;
+}
+// 総合順位は順位帯のマス目で見せる。折れ線だと自団(112〜423位)の変動が
+// 相手のスケールに潰されて真っ平らに見えるため。上位ほど赤・下位ほど青。
+// 隣接帯のΔEは最小21.8、文字色は地の明るさで白/濃紺を出し分ける
+const RANK_BANDS=[[100,'#6E1A10','〜100位','#fff'],[300,'#C15038','〜300位','#fff'],
+                  [1000,'#F2E3D6','〜1000位','#1c2733'],[3000,'#7FA8CC','〜3000位','#1c2733'],
+                  [Infinity,'#1F4E79','3000位超','#fff']];
+function rankHeatHtml(rh,oursName,oppName){
+  if(!rh||!rh.length) return '';
+  const raids=[...new Set(rh.map(r=>r.raid))];
+  const cell=v=>{
+    if(v==null) return '<div class="cell" style="background:var(--bg);color:var(--mut)">—</div>';
+    const b=RANK_BANDS.find(x=>v<=x[0]);
+    return `<div class="cell" style="background:${b[1]};color:${b[3]}" title="${b[2]}">${v.toLocaleString()}</div>`;
+  };
+  const row=(nm,key)=>`<div class="rl">${nm}</div>`+rh.map(r=>cell(r[key])).join('');
+  const cols=`96px repeat(${rh.length},minmax(44px,1fr))`;
+  return `<div class="hm" style="grid-template-columns:${cols}">
+      <div></div>${raids.map(r=>{
+        const n=rh.filter(x=>x.raid===r).length;
+        return `<div class="hd" style="grid-column:span ${n};font-weight:700">第${r}回</div>`;
+      }).join('')}
+      <div></div>${rh.map(r=>`<div class="hd">${r.label.split('回')[1]}</div>`).join('')}
+      ${row(oursName,'ours')}
+      ${row(oppName,'opp')}
+    </div>
+    <div class="hmkey">${RANK_BANDS.map(b=>`<span><i style="background:${b[1]}"></i>${b[2]}</span>`).join('')}</div>`;
+}
 function pickOpp(gid){ $('#oppInput').value=gid; loadLive(); }
 async function loadLive(){
   if($('#dateSel').value==='yosen'){ return loadYosen(); }
@@ -482,8 +567,8 @@ async function loadLive(){
     const hkey=d.hours[lastIdx];
     const oj=paceJudge(prev.opp.cum[hkey]?(d.opp.cum[hkey]??null)/prev.opp.cum[hkey]:null);
     const kj=paceJudge(prev.ours.cum[hkey]?(d.ours.cum[hkey]??null)/prev.ours.cum[hkey]:null);
-    if(kj) judgeCards+=`<div class="metric ours"><div class="l">自団 ${prev.label}同時刻比</div><div class="v" style="font-size:18px">${kj.pct}%</div><div class="s">${kj.txt}</div></div>`;
-    if(oj) judgeCards+=`<div class="metric opp"><div class="l">相手 ${prev.label}同時刻比</div><div class="v" style="font-size:18px">${oj.pct}%</div><div class="s"><span class="badge" style="background:${oj.bg};color:${oj.fg}">${oj.txt}</span></div></div>`;
+    if(kj) judgeCards+=`<div><div class="k">自団 ${prev.label}同時刻比</div><div class="v">${kj.pct}<span class="u">%</span></div><div class="k">${kj.txt}</div></div>`;
+    if(oj) judgeCards+=`<div><div class="k">相手 ${prev.label}同時刻比</div><div class="v">${oj.pct}<span class="u">%</span></div><div class="k">${oj.txt}</div></div>`;
   }
   // 相手方針 & 勝率予想
   const fc=d.forecast;
@@ -491,17 +576,9 @@ async function loadLive(){
   $('#retreatChk').checked = !!(fc && fc.retreated);
   if(fc){
     if(fc.policy){
-      const tone={bad:['#fcebeb','#A32D2D'],mid:['#faeeda','#854F0B'],good:['#e1f5ee','#0F6E56']}[fc.policy.tone];
-      judgeCards+=`<div class="metric opp"><div class="l">相手の方針(直近時速)</div><div class="v" style="font-size:17px"><span class="badge" style="background:${tone[0]};color:${tone[1]}">${fc.policy.label}</span></div><div class="s">前日同時間帯の時速比 ${fc.policy.pct}%</div></div>`;
+      judgeCards+=`<div><div class="k">相手の方針(直近時速)</div><div class="v" style="font-size:14px">${fc.policy.label}</div><div class="k">前日同時間帯の時速比 ${fc.policy.pct}%</div></div>`;
     }
-    const patCard=(p,who)=>p?`<div class="metric ${who==='自団'?'ours':'opp'}"><div class="l">${who} 時間帯パターン</div><div class="v" style="font-size:17px">${p.label}</div><div class="s">朝${p.pct['朝']}% 昼${p.pct['昼']}% 夕${p.pct['夕']}% 夜${p.pct['夜']}%</div></div>`:'';
-    judgeCards+=patCard(fc.ours_pattern,'自団')+patCard(fc.opp_pattern,'相手');
-    const wc=fc.win>=60?'good':(fc.win>=40?'':'bad');
-    judgeCards+=`<div class="metric"><div class="l">本日勝率予想</div><div class="v ${wc}">${fc.win}%</div><div class="s">予測最終 ${fc.proj_ours}億 vs ${fc.proj_opp}億<br>過去戦績${fc.prior}%×${fc.basis}</div></div>`;
-    if(fc.advice){
-      const at={bad:['#fcebeb','#A32D2D'],mid:['#faeeda','#854F0B'],good:['#e1f5ee','#0F6E56']}[fc.advice.tone]||['#e6f1fb','#185FA5'];
-      judgeCards+=`<div class="metric" style="grid-column:1/-1;outline:2px solid ${at[1]};outline-offset:-2px"><div class="l">推奨アクション</div><div class="v" style="font-size:17px"><span class="badge" style="background:${at[0]};color:${at[1]}">${fc.advice.label}</span></div><div class="s" style="line-height:1.5">${fc.advice.text}</div></div>`;
-    }
+    judgeCards+=patCell(fc.ours_pattern,'自団')+patCell(fc.opp_pattern,'相手');
   }
   // 前日同時刻のリード(日次対戦なので前日の同時点と比較できると撤退判断に便利)
   let prevLeadTxt='';
@@ -521,14 +598,41 @@ async function loadLive(){
   // 当日の最高時速(8時は日始からの累積のため除外)
   const peak=(sp,hrs)=>{let mv=null,mh=null;for(let i=1;i<sp.length;i++){if(sp[i]!=null&&(mv==null||sp[i]>mv)){mv=sp[i];mh=hrs[i];}}return{v:mv,h:mh};};
   const opk=peak(os,H), ppk=peak(ps,H);
+  // 判断バンド。毎時見るのは「勝っているか・どうすべきか」なので、リード・勝率・
+  // 推奨アクションを1枚にまとめて最上部に置く。素の数字は下のストリップへ。
+  const mxCum=Math.max(lo??0, lp??0)||1;
+  const leadHtml = lead==null ? '—'
+    : (lead>=0 ? `<span class="up"><span class="mk">▲</span>+${lead.toFixed(1)}<span class="u" style="font-size:14px;color:var(--mut)">億</span></span>`
+               : `<span class="dn"><span class="mk">▼</span>${lead.toFixed(1)}<span class="u" style="font-size:14px;color:var(--mut)">億</span></span>`);
+  const fcx=d.forecast;
+  let heroHtml='';
+  if(lastIdx>=0){
+    const at=fcx&&fcx.advice
+      ? ({bad:['#fcebeb','#A32D2D'],mid:['#faeeda','#854F0B'],good:['#e1f5ee','#0F6E56']}[fcx.advice.tone]||['#e6f1fb','#185FA5'])
+      : null;
+    heroHtml=`<div class="hero">
+      <div class="heroTop">
+        <div class="heroLead"><div class="k">本日リード</div><div class="v">${leadHtml}</div></div>
+        <div class="heroMid">
+          <div class="st">${lead==null?'':(lead>=0?'勝ち越し中':'ビハインド')}${prevLeadTxt?` <span class="k" style="font-weight:400">／ ${prevLeadTxt}</span>`:''}</div>
+          <div class="bar"><i style="width:${(lo??0)/mxCum*100}%;background:var(--blue)"></i></div>
+          <div class="bar" style="margin-top:4px"><i style="width:${(lp??0)/mxCum*100}%;background:var(--red)"></i></div>
+          <div class="sub">${d.ours.name} ${lo?.toFixed(1)??'—'}億 ／ ${oppNameHtml} ${lp?.toFixed(1)??'—'}億　<span style="opacity:.8">${H[lastIdx]??''}時時点</span></div>
+        </div>
+        ${fcx?`<div class="heroWin"><div class="k">本日勝率予想</div><div class="v">${fcx.win}<span style="font-size:14px;color:var(--mut)">%</span></div>
+          <div class="k">${fcx.proj_ours}億 vs ${fcx.proj_opp}億</div></div>`:''}
+      </div>
+      ${fcx&&fcx.advice?`<div class="heroAct">
+        <span class="badge" style="background:${at[0]};color:${at[1]};flex:none">${fcx.advice.label}</span>
+        <span class="tx">${fcx.advice.text}</span></div>`:''}
+    </div>`;
+  }
   $('#liveBody').innerHTML=`
     ${lastIdx<0?'<div class="card" style="color:var(--mut)">この回の毎時データはgbfdataに未収録のため、グラフ・リードは表示できません（参考情報の日別実績は有効です）</div>':''}
-    <div class="metrics">
-      <div class="metric ours"><div class="l">${d.ours.name} 本日</div><div class="v">${lo?.toFixed(1)??'—'}<span style="font-size:12px">億</span></div><div class="s">前日終了比 / ${H[lastIdx]??''}時時点</div></div>
-      <div class="metric opp"><div class="l">${oppNameHtml} 本日</div><div class="v">${lp?.toFixed(1)??'—'}<span style="font-size:12px">億</span></div><div class="s">前日終了比</div></div>
-      <div class="metric"><div class="l">本日リード</div><div class="v ${lead>=0?'good':'bad'}">${lead!=null?(lead>0?'+':'')+lead.toFixed(1):'—'}<span style="font-size:12px">億</span></div><div class="s">${lead!=null?(lead>=0?'勝ち越し中':'ビハインド'):''}${prevLeadTxt?' / '+prevLeadTxt:''}</div></div>
-      <div class="metric ours"><div class="l">${d.ours.name} 本日最高時速</div><div class="v bad">${opk.v?.toFixed(1)??'—'}<span style="font-size:12px">億/h</span></div><div class="s">${opk.h?opk.h+'時':''}</div></div>
-      <div class="metric opp"><div class="l">${oppName} 本日最高時速</div><div class="v bad">${ppk.v?.toFixed(1)??'—'}<span style="font-size:12px">億/h</span></div><div class="s">${ppk.h?ppk.h+'時':''}</div></div>
+    ${heroHtml}
+    <div class="strip">
+      <div><div class="k">${d.ours.name} 最高時速</div><div class="v">${opk.v?.toFixed(1)??'—'}<span class="u">億/h</span>${opk.h?` <span class="k" style="display:inline">${opk.h}時</span>`:''}</div></div>
+      <div><div class="k">${oppName} 最高時速</div><div class="v">${ppk.v?.toFixed(1)??'—'}<span class="u">億/h</span>${ppk.h?` <span class="k" style="display:inline">${ppk.h}時</span>`:''}</div></div>
       ${judgeCards}
     </div>
     <div class="card"><h2>当日貢献度${(d.past||[]).length?(d.past.length===1?' — 点線（前日貢献度）':' — 点線（過去日貢献度）'):''}</h2><div class="chartbox"><canvas id="cumC"></canvas></div></div>
@@ -537,7 +641,7 @@ async function loadLive(){
       d.ref.map(r=>{const has=r.ours!=null&&r.opp!=null; const df=has?r.ours-r.opp:null;
         return `<tr><td>${r.label}</td><td>${f1(r.ours)}</td><td style="color:var(--mut)">${r.ours_rank?r.ours_rank+'位':'—'}</td><td>${f1(r.opp)}</td><td style="color:var(--mut)">${r.opp_rank?r.opp_rank+'位':'—'}</td><td class="${df!=null?(df>=0?'good':'bad'):''}">${df!=null?(df>0?'+':'')+df.toFixed(1):'—'}</td></tr>`;}).join('')
     }</table></div>`:''}
-    ${(d.rank_history||[]).some(r=>r.opp!=null)?`<div class="card"><h2>総合順位の推移（直近3開催 予選〜本戦）</h2><div class="chartbox" style="height:220px"><canvas id="rankC"></canvas></div></div>`:''}
+    ${(d.rank_history||[]).some(r=>r.opp!=null)?`<div class="card"><h2>総合順位の推移（直近3開催 予選〜本戦）</h2>${rankHeatHtml(d.rank_history,d.ours.name,d.opp.name||'相手')}</div>`:''}
     ${(oc.some(v=>v!=null)||pc.some(v=>v!=null))?`<div class="card"><h2>${d.label}の推移（数値・億）— 当日</h2><div style="overflow-x:auto"><table>
       <tr><th>時刻</th><th>${d.ours.name}</th><th>時速</th><th>${oppName}</th><th>時速</th><th>差</th></tr>${
       H.map((h,i)=>{const o=oc[i],p=pc[i];
@@ -569,15 +673,6 @@ async function loadLive(){
     {label:d.ours.name,data:os,borderColor:'#378ADD',tension:.35,pointRadius:0,borderWidth:2,spanGaps:true},
     {label:d.opp.name||'相手',data:ps,borderColor:'#D85A30',tension:.35,pointRadius:0,borderWidth:2,spanGaps:true},
     ...pastSets('speed')]);
-  const rh=d.rank_history||[];
-  if(rh.some(r=>r.opp!=null)&&document.getElementById('rankC')){
-    mkChart('#rankC','line',rh.map(r=>r.label||(r.raid+'回')),[
-      {label:d.ours.name,data:rh.map(r=>r.ours),borderColor:'#378ADD',backgroundColor:'#378ADD',tension:.3,pointRadius:4,borderWidth:2,spanGaps:true},
-      {label:d.opp.name||'相手',data:rh.map(r=>r.opp),borderColor:'#D85A30',backgroundColor:'#D85A30',tension:.3,pointRadius:4,borderWidth:2,spanGaps:true}
-    ],{scales:{x:{grid:{display:false},border:{color:'rgba(28,39,51,.10)'},ticks:{color:'#68707a',font:{size:11}}},
-       y:{reverse:true,grid:{color:'rgba(28,39,51,.038)',drawTicks:false},border:{display:false},
-          ticks:{color:'#68707a',font:{size:10},padding:7,maxTicksLimit:4,callback:v=>v+'位'}}}});
-  }
 }
 // gbfdataは毎時更新。毎時3分に取り直し、まだ新データが無ければ3分おきに再試行(最大5回)
 function scheduleAutoRefresh(){
@@ -668,7 +763,7 @@ async function loadScout(){
     <div class="card"><h2>直近3開催 本戦1〜4の当日貢献度比較（霞桜団 ${dayWins}勝 / ${dayN}戦）</h2><div style="overflow-x:auto"><table>
       <tr><th>日程</th><th>霞桜団</th><th>${d.name}</th><th>差</th><th>判定</th></tr>${p3rows}</table></div></div>
     <div class="card"><h2>直近3回の本戦貢献度比較</h2><div class="chartbox"><canvas id="scTot"></canvas></div></div>
-    <div class="card"><h2>総合順位の推移（直近3開催 予選〜本戦）</h2><div class="chartbox" style="height:220px"><canvas id="scRank"></canvas></div></div>
+    <div class="card"><h2>総合順位の推移（直近3開催 予選〜本戦）</h2>${rankHeatHtml(d.rank_history||[],'霞桜団',d.name)}</div>
     <div class="card"><h2 id="scSpdTitle">本戦の最高時速</h2><div id="scSpdBox"><div class="load">時速データ取得中…(20秒ほど)</div></div></div>
     <div class="card"><h2>前日の比較</h2><div id="scPrevBox"><div class="load">前日データ取得中…</div></div></div>
     ${scoutMembersHtml(d.members,d.name)}
@@ -686,13 +781,6 @@ async function loadScout(){
     {label:'霞桜団',data:do1,bar:'#378ADD',borderRadius:4,borderSkipped:false},
     {label:d.name,data:dp1,bar:'#D85A30',borderRadius:4,borderSkipped:false}
   ],{datasets:{bar:{categoryPercentage:.72,barPercentage:.92}}});
-  const rh=d.rank_history||[];
-  mkChart('#scRank','line',rh.map(r=>r.label),[
-    {label:'霞桜団',data:rh.map(r=>r.ours),borderColor:'#378ADD',backgroundColor:'#378ADD',tension:0.3,borderWidth:2,pointRadius:3,spanGaps:true},
-    {label:d.name,data:rh.map(r=>r.opp),borderColor:'#D85A30',backgroundColor:'#D85A30',tension:0.3,borderWidth:2,pointRadius:3,spanGaps:true}
-  ],{scales:{x:{grid:{display:false},border:{color:'rgba(28,39,51,.10)'},ticks:{color:'#68707a',font:{size:10}}},
-     y:{reverse:true,grid:{color:'rgba(28,39,51,.038)',drawTicks:false},border:{display:false},
-        ticks:{color:'#68707a',font:{size:10},padding:7,maxTicksLimit:4,callback:v=>v+'位'}}}});
   loadScoutSpeed(d.gid, d.name);
 }
 async function loadScoutSpeed(gid,oppName){

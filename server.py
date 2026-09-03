@@ -429,17 +429,16 @@ def battle_advice(cur_do, win, o_pat=None, p_pat=None, lead=None, hk=None, proj_
     if retreated:
         pn = f"相手は{p_pat['label']}。" if p_pat else ""
         return retreat_advice(cur_do, pn)
-    # パターンの読み(相手が後半型なら、リードがあっても警戒が要る)
+    # パターンの読み(相手が後半型なら、リードがあっても警戒が要る)。
+    # 型そのものは画面のストリップにバーで出るので、ここでは繰り返さず
+    # 「そこから何が言えるか」だけを書く
     note = ""
     risk = False
     if p_pat:
-        note = f"相手は{p_pat['label']}（{p_pat['desc']}／朝{p_pat['pct']['朝']}% 昼{p_pat['pct']['昼']}% 夕{p_pat['pct']['夕']}% 夜{p_pat['pct']['夜']}%）。"
         rest = remaining_share(p_pat, hk) if hk else None
         if rest is not None and p_pat["label"] in ("夜型", "終盤型") and rest >= 0.25:
             risk = True
-            note += f"残り時間に相手の約{round(rest*100)}%が控えています。"
-    if o_pat:
-        note += f"自団は{o_pat['label']}。"
+            note += f"相手は{p_pat['label']}で、残り時間に約{round(rest * 100)}%が控えています。"
     if proj_lead is not None:
         note += f"このままの型なら最終差は約{proj_lead:+.0f}億の見込み。"
 
@@ -823,7 +822,8 @@ def api_scout(q):
             o, p = o_at.get((rn, do)), p_at.get((rn, do))
             if o is None and p is None:
                 continue
-            rank_history.append({"label": f"{rn}回{dl}", "ours": o, "opp": p})
+            # raid は画面側が開催回ごとの見出しを作るのに使う(ライブ側と同じ形に揃える)
+            rank_history.append({"label": f"{rn}回{dl}", "raid": rn, "ours": o, "opp": p})
 
     return {"name": gname, "gid": gid, "url": f"https://game.granbluefantasy.jp/#guild/detail/{gid}",
             "events": events, "past_avg": past_avg, "ours_avg": ours_avg,

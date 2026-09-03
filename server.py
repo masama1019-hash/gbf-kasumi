@@ -315,6 +315,9 @@ def api_config(q):
     raids = sorted(rset, reverse=True)
     return {"ours": OURS_NAME, "opponent": opp, "raid": m["raid"], "latest": m["latest"],
             "raids": raids, "schedules": m["schedules"],
+            # 保存済みの対戦相手。画面が日付を選んだときに相手欄を自動で埋める。
+            # サーバ側では従来どおり opp の明示指定を必須にしておく(黙って別の団を集計しない)
+            "opponents": opp_for_raid(m["raid"]),
             "members": [{"name": n, "uid": u} for n, u in MEMBERS]}
 
 
@@ -1619,9 +1622,13 @@ GAS_URL = os.environ.get("GAS_URL", "")
 GAS_SSID = os.environ.get("GAS_SSID", "")
 GAS_SHEET = os.environ.get("GAS_SHEET", "撤退")
 GAS_CELL = os.environ.get("GAS_CELL", "A1")
+GAS_CELL_OPP = os.environ.get("GAS_CELL_OPP", "A2")   # 対戦相手の保存先(同じタブの別セル)
 RETREAT_TTL = 60                      # スプレッドシートを読み直す間隔(秒)
 _retreat = {"at": 0.0, "map": None}   # map: {"83|2026-06-24": True}
 _retreat_lock = threading.Lock()
+# 対戦相手。本戦は1日1試合なのでキーは撤退フラグと同じ「開催回|日付」
+_opp = {"at": 0.0, "map": None}       # map: {"83|2026-06-24": {"gid":..,"name":..}}
+_opp_lock = threading.Lock()
 
 
 def _gas(payload, timeout=25):
@@ -1687,6 +1694,57 @@ def api_retreat(data):
             "persisted": bool(saved and saved.get("status") == "ok")}, 200
 
 
+def opp_map():
+    """保存済みの対戦相手。撤退フラグと同じくTTLの間はメモリのものを使う"""
+    now = time.time()
+    with _opp_lock:
+        if _opp["map"] is not None and now - _opp["at"] < RETREAT_TTL:
+            return _opp["map"]
+    d = _gas({"read": f"{GAS_CELL_OPP}:{GAS_CELL_OPP}"})
+    m = {}
+    if d and d.get("status") == "ok":
+        raw = ((d.get("values") or [[""]])[0] or [""])[0]
+        if isinstance(raw, str) and raw.strip().startswith("{"):
+            try:
+                m = {k: v for k, v in json.loads(raw).items() if isinstance(v, dict)}
+            except Exception:
+                m = {}
+    with _opp_lock:
+        if d is None and _opp["map"] is not None:   # GAS未設定/失敗なら持っている値を捨てない
+            return _opp["map"]
+        _opp["map"], _opp["at"] = m, now
+        return m
+
+
+def opp_for_raid(raid):
+    """その開催回の {日付: {gid, name}}。画面が相手欄を自動で埋めるのに使う"""
+    pre = f"{raid}|"
+    return {k[len(pre):]: v for k, v in opp_map().items() if k.startswith(pre)}
+
+
+def api_opponent(data):
+    """対戦相手の保存(POST)。誤った相手で全員の画面が狂わないよう撤退と同じパスワードで守る"""
+    if not RETREAT_PW:
+        return {"error": "サーバにパスワードが設定されていません（環境変数 RETREAT_PW）"}, 503
+    if not hmac.compare_digest(str(data.get("pw", "")), RETREAT_PW):
+        return {"error": "パスワードが違います"}, 403
+    raid, date = data.get("raid"), data.get("date")
+    if not (raid and date):
+        return {"error": "開催回と日付が必要です"}, 400
+    key = f"{raid}|{date}"
+    gid, name = str(data.get("gid") or "").strip(), str(data.get("name") or "").strip()
+    m = dict(opp_map())
+    if gid:
+        m[key] = {"gid": gid, "name": name}
+    else:
+        m.pop(key, None)                            # 空で送れば削除
+    saved = _gas({"cell": GAS_CELL_OPP, "value": json.dumps(m, ensure_ascii=False)})
+    with _opp_lock:
+        _opp["map"], _opp["at"] = m, time.time()
+    return {"status": "ok", "raid": raid, "date": date, "gid": gid, "name": name,
+            "persisted": bool(saved and saved.get("status") == "ok")}, 200
+
+
 ROUTES = {"/api/config": api_config, "/api/live": api_live,
           "/api/scout": api_scout, "/api/yosen": api_yosen, "/api/koran": api_koran,
           "/api/scout_speed": api_scout_speed}
@@ -1708,8 +1766,11 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    POSTS = {"/api/retreat": "retreat", "/api/opponent": "opponent"}
+
     def do_POST(self):
-        if urllib.parse.urlparse(self.path).path != "/api/retreat":
+        kind = self.POSTS.get(urllib.parse.urlparse(self.path).path)
+        if not kind:
             self._json({"error": "not found"}, 404)
             return
         try:
@@ -1718,7 +1779,9 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({"error": "too large"}, 413)
                 return
             data = json.loads(self.rfile.read(n) or b"{}")
-            body, code = api_retreat(data if isinstance(data, dict) else {})
+            if not isinstance(data, dict):
+                data = {}
+            body, code = (api_retreat(data) if kind == "retreat" else api_opponent(data))
         except Exception as e:
             body, code = {"error": str(e)}, 500
         self._json(body, code)

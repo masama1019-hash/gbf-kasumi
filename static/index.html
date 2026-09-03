@@ -129,6 +129,7 @@
       <select id="dateSel"></select>
       <label id="oppLabel" style="font-size:13px;color:var(--mut)">相手</label>
       <input id="oppInput" placeholder="相手団名 または 団ID" style="flex:1;min-width:120px">
+      <button id="oppSave" title="この日の対戦相手として保存します。次からは日付を選ぶだけで自動で入り、団員の画面にも同じ相手が入ります">相手を保存</button>
       <label id="pastLabel" style="font-size:13px;color:var(--mut)">過去比較</label>
       <select id="pastSel">
         <option value="0">なし</option>
@@ -181,6 +182,7 @@ const $=s=>document.querySelector(s);
 // 数値を小数点1桁で表示(nullは—)。予選・本戦・スカウト全テーブル/カードで統一
 const f1=x=>(x!=null&&x!=='')?(+x).toFixed(1):'—';
 let charts={}, cfg=null, timer=null, LAST_TICK=null, retryN=0;
+let LAST_OPP=null;   // 直近で集計した相手(gid,name)。保存時に団名も残すのに使う
 document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>{
   document.querySelectorAll('.tab').forEach(x=>x.classList.remove('on'));
   b.classList.add('on');
@@ -287,13 +289,41 @@ function fillDates(){
   }else{
     sel.selectedIndex=0;            // 予選・IB・開催期間外は「予選」
   }
-  sel.onchange=syncYosenUI; syncYosenUI();
+  sel.onchange=()=>{ syncYosenUI(); fillSavedOpp(); }; syncYosenUI(); fillSavedOpp();
   $('#retreatChk').onchange=toggleRetreat;
+  $('#oppSave').onclick=saveOpp;
+}
+// 保存済みの相手を相手欄に入れる。サーバ側は従来どおり明示指定を要求するので、
+// 「画面に見えている団で集計する」ことは変わらない
+function fillSavedOpp(){
+  const d=$('#dateSel').value, sv=(cfg&&cfg.opponents)?cfg.opponents[d]:null;
+  const el=$('#oppInput');
+  // 保存が無い日は空にする。前の日の相手が残ると、違う団で集計してしまう
+  if(sv&&sv.gid){ el.value=sv.gid; el.title=`保存済み: ${sv.name||sv.gid}`; }
+  else { el.value=''; el.title=''; }
+}
+async function saveOpp(){
+  const date=$('#dateSel').value;
+  if(date==='yosen'){ alert('予選には対戦相手がありません'); return; }
+  const gid=$('#oppInput').value.trim();
+  const name=(LAST_OPP&&String(LAST_OPP.gid)===gid)?LAST_OPP.name:'';
+  const pw=retreatPw();
+  if(!pw) return;
+  let r;
+  try{
+    r=await (await fetch('/api/opponent',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({raid:$('#raidSel').value,date,gid,name,pw})})).json();
+  }catch(e){ r={error:'通信できませんでした'}; }
+  if(r.error){ try{ sessionStorage.removeItem('retreatPw'); }catch(e){} alert(r.error); return; }
+  cfg.opponents=cfg.opponents||{};
+  if(gid) cfg.opponents[date]={gid:r.gid,name:r.name}; else delete cfg.opponents[date];
+  alert(gid?`保存しました（${r.name||r.gid}）${r.persisted?'':'\n※保存先に書けませんでした。サーバ再起動で戻ります'}`
+           :'保存を解除しました');
 }
 function syncYosenUI(){
   const yo=$('#dateSel').value==='yosen';
   // 予選は相手団不要・過去比較は前回予選のみ → グレーアウト
-  ['#oppInput','#pastSel','#retreatChk'].forEach(s=>{const e=$(s); e.disabled=yo; e.style.opacity=yo?0.4:1;});
+  ['#oppInput','#pastSel','#retreatChk','#oppSave'].forEach(s=>{const e=$(s); e.disabled=yo; e.style.opacity=yo?0.4:1;});
   $('#oppLabel').style.opacity=yo?0.4:1; $('#pastLabel').style.opacity=yo?0.4:1;
   $('#retreatLabel').style.opacity=yo?0.4:1;
 }
@@ -627,6 +657,7 @@ async function loadLive(){
   // 相手団ページへのリンク
   const oppUrl=d.opp.gid?`https://game.granbluefantasy.jp/#guild/detail/${d.opp.gid}`:null;
   const oppName=d.opp.name||'相手未設定';
+  if(d.opp.gid) LAST_OPP={gid:d.opp.gid, name:d.opp.name||''};
   const oppNameHtml=oppUrl?`<a href="${oppUrl}" target="_blank" rel="noopener" style="color:var(--blue);text-decoration:none">${oppName} ↗</a>`:oppName;
   // 当日の最高時速。本戦は7時開始なので、最初のスナップショット(8時)も
   // 7→8時の1時間ぶん＝正当な時速。⚠️以前は8時を除外していて、表の強調(mxOf)と

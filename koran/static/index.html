@@ -318,14 +318,24 @@ function render(){
   const L2=line(2000), L1=line(100000), L15=line(150000);
   const c2=cur(L2).cum, c1=cur(L1).cum, c15=cur(L15).cum;
   const pm=projM(m);
-  // 基準は「まだ届いていない一番手前のライン」。全員に英雄(2000位)を当てると、
-  // 下位の人は差が数百億になって判断材料にならない。全部到達済みなら英雄で余裕を見る
+  // バンドの主役は「この一覧の中での位置」。1位なら2位とのリード、それ以外は1位との差。
+  // ラインの到達状況は下の判定文とストリップに残してある
+  const ord=D.members.map(x=>({m:x,c:cur(x)})).sort((a,b)=>(b.c.cum??-1)-(a.c.cum??-1));
+  const myPos=ord.findIndex(o=>o.m.uid===m.uid)+1;
+  const top=ord[0], second=ord[1];
+  const isTop=myPos===1;
+  const rival=isTop?second:top;                 // 1人しかいなければ相手なし
+  const rv=rival?rival.c.cum:null;
+  const gap=(c.cum!=null&&rv!=null)?c.cum-rv:null;
+  const gapLabel=isTop?'2位とのリード':'1位との差';
+
+  // 判定文とバッジは従来どおり「まだ届いていない一番手前のライン」で出す
   const order=[[150000,c15],[100000,c1],[2000,c2]];
   const hit=order.find(([,lv])=>lv!=null&&c.cum!=null&&c.cum<lv);
   const tgt=line(hit?hit[0]:2000);
   const tv=cur(tgt).cum, tp=projL(tgt.rank);
   const diff=(c.cum!=null&&tv!=null)?c.cum-tv:null;
-  const mx=Math.max(c.cum??0,tv??0)||1;
+  const mx=Math.max(c.cum??0,rv??0)||1;
   const reached=diff!=null&&diff>=0;
   // 判定は「いま届いているか」ではなく「このペースの着地で届くか」を主にする
   const willReach=(pm!=null&&tp!=null)?pm>=tp:null;
@@ -363,13 +373,13 @@ function render(){
   $('#body').innerHTML=`
     <div class="hero">
       <div class="heroTop">
-        <div class="heroLead"><div class="k">${tgt.label}との差</div>
-          <div class="v">${diff==null?'—':(diff>=0?`<span class="up"><span class="mk">▲</span>+${f1(diff)}<span style="font-size:14px;color:var(--mut)">億</span></span>`:`<span class="dn"><span class="mk">▼</span>${f1(diff)}<span style="font-size:14px;color:var(--mut)">億</span></span>`)}</div></div>
+        <div class="heroLead"><div class="k">${rival?gapLabel:'この一覧では1人だけ'}</div>
+          <div class="v">${gap==null?'—':(gap>=0?`<span class="up"><span class="mk">▲</span>+${f1(gap)}<span style="font-size:14px;color:var(--mut)">億</span></span>`:`<span class="dn"><span class="mk">▼</span>${f1(gap)}<span style="font-size:14px;color:var(--mut)">億</span></span>`)}</div></div>
         <div class="heroMid">
           <div class="st">${m.name}${m.level?`（Lv${m.level}）`:''}</div>
           <div class="bar"><i style="width:${(c.cum??0)/mx*100}%;background:${m.color}"></i></div>
-          <div class="bar" style="margin-top:6px"><i style="width:${(tv??0)/mx*100}%;background:${tgt.color}"></i></div>
-          <div class="sub">${m.name} ${f1(c.cum)}億${c.rank?`（${c.rank.toLocaleString()}位）`:''} ／ ${tgt.label} ${f1(tv)}億　<span style="opacity:.8">${c.key?hourLabel(c.key)+'時点':''}</span></div>
+          ${rival?`<div class="bar" style="margin-top:6px"><i style="width:${(rv??0)/mx*100}%;background:${rival.m.color}"></i></div>`:''}
+          <div class="sub">${m.name} ${f1(c.cum)}億${c.rank?`（全体${c.rank.toLocaleString()}位）`:''}　<b>この一覧で${myPos}位</b>${rival?` ／ ${isTop?'2位':'1位'} ${rival.m.name} ${f1(rv)}億`:''}　<span style="opacity:.8">${c.key?hourLabel(c.key)+'時点':''}</span></div>
         </div>
         ${pm!=null?`<div class="heroWin"><div class="k">${m.name} 着地予想</div><div class="v">${f1(pm)}<span style="font-size:14px;color:var(--mut)">億</span></div>
           ${tp!=null?`<div class="k">${tgt.label} ${f1(tp)}億</div>`:''}</div>`:''}

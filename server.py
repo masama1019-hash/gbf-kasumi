@@ -32,6 +32,9 @@ HOURS = [f"{h:02d}:00" for h in range(8, 24)] + ["24:00"]
 # gbfdataが1リクエストで返せる最大件数(1000は不可)。団・個人とも500順位ぶんまとめて見る
 PAGE = 500
 MAX_RANK = 200500   # gbfdataの個人ランキングの深度上限(これ以降はデータが無い)
+# 開催回セレクタの下限。これより古い回はgbfdataの収録に欠けが多く、
+# 選んでも中身が揃わないので一覧に出さない
+MIN_RAID = 67
 
 
 def hour_label(t):
@@ -312,7 +315,8 @@ def api_config(q):
     # まだ自団の履歴行が無くてもタブに出るように)。
     rset = {x["raid_number"] for x in guild_histories(OURS_GID)}
     rset |= {r for r in (m["raid"], m["latest"]) if r}
-    raids = sorted(rset, reverse=True)
+    # 第66回以前はgbfdataの収録に欠けが多く、選んでも中身が揃わないので出さない
+    raids = sorted((r for r in rset if r >= MIN_RAID), reverse=True)
     return {"ours": OURS_NAME, "opponent": opp, "raid": m["raid"], "latest": m["latest"],
             "raids": raids, "schedules": m["schedules"],
             # 保存済みの対戦相手。画面が日付を選んだときに相手欄を自動で埋める。
@@ -1480,7 +1484,10 @@ def api_koran_all(q):
            f"&user_ids={','.join(str(u) for u in uids)}")
     d = get(url, ttl=180)
     if not d:
-        return {"error": f"第{raid}回のデータを取得できませんでした"}
+        # gbfdataは個人の時刻毎を直近2回ぶんしか持たない。古い回はここで空が返る
+        return {"error": f"第{raid}回の個人データはgbfdataに残っていません"
+                         f"（まとめて見られるのは直近2回ぶんです）。"
+                         f"個人ごとの日別実績は、上の欄で名前かIDを検索すれば表示できます"}
 
     def last_pt(points):
         pts = [p for p in (points or []) if p.get("point") is not None]

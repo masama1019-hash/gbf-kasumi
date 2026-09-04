@@ -129,11 +129,12 @@
      .sp を先に書かないと同じ詳細度で .mx の色が打ち消される */
   .sp { color:var(--mut); }
   .mx { color:var(--red); font-weight:700; background:#fdf1e7; border-radius:4px; }
-  /* 日別のTOP3。同じ色相の3段で順位を示す。.sp より後に書かないと文字色が打ち消される。
-     段どうしのΔEは10以上、文字と背景のコントラストは5.9以上(実測) */
-  .t1 { color:#7A2D0C; font-weight:700; background:#F6C9A8; border-radius:4px; }
-  .t2 { color:#8A3A14; font-weight:600; background:#FBDFC9; border-radius:4px; }
-  .t3 { color:#96471F; font-weight:600; background:#FDF1E7; border-radius:4px; }
+  /* 日別のTOP3。1位は塗りつぶし＋白文字、2位・3位は薄い順に。
+     .sp より後に書かないと文字色が打ち消される。
+     実測: 段どうしのΔEは33/31、3位と無色の差は21。文字と背景のコントラストは4.8以上 */
+  .t1 { color:#fff;    font-weight:700; background:#B85515; border-radius:4px; }
+  .t2 { color:#5C2408; font-weight:700; background:#F0A96B; border-radius:4px; }
+  .t3 { color:#6B2E0E; font-weight:600; background:#FBDCC0; border-radius:4px; }
   .load { color:var(--mut); font-size:13px; padding:20px; text-align:center; }
   .hide { display:none; }
   .badge { display:inline-block; padding:3px 10px; border-radius:20px; font-size:12px; font-weight:600; }

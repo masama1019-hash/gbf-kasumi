@@ -26,6 +26,23 @@
   .who button i { width:9px; height:9px; border-radius:50%; display:block; flex:none; }
   .who button.on { border-color:#1c2733; box-shadow:inset 0 0 0 1px #1c2733; font-weight:600; }
   .who button .lv { font-size:10.5px; color:var(--mut); }
+  .who button.editBtn { color:var(--mut); border-style:dashed; }
+  /* ---- メンバーの編集パネル ---- */
+  .ed { background:var(--card); border-radius:12px; padding:14px 16px; margin-bottom:14px;
+        box-shadow:0 1px 3px rgba(0,0,0,.06); }
+  .ed h3 { font-size:12.5px; color:var(--mut); font-weight:600; margin:0 0 8px; }
+  .ed .mem { display:flex; align-items:center; gap:8px; padding:6px 0; border-bottom:1px solid #eef0f2;
+             font-size:13px; }
+  .ed .mem:last-of-type { border-bottom:none; }
+  .ed .mem i { width:9px; height:9px; border-radius:50%; flex:none; }
+  .ed .mem .nmx { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .ed .mem .sub { font-size:11px; color:var(--mut); white-space:nowrap; }
+  .ed .mem button, .ed .hit button { font-size:12px; padding:3px 11px; cursor:pointer; }
+  .ed .hit { display:flex; align-items:center; gap:8px; padding:6px 0; font-size:13px; }
+  .ed .hit .sub { font-size:11px; color:var(--mut); white-space:nowrap; }
+  .ed .hit .nmx { flex:1; min-width:0; }
+  .ed .msg { font-size:12px; color:var(--mut); margin-top:6px; }
+  .ed hr { border:none; border-top:1px solid #eef0f2; margin:12px 0; }
   /* ---- 判断バンドと数値ストリップ(本体アプリと同じ構成) ---- */
   .hero { background:var(--card); border:1px solid #e3e8ee; border-radius:12px;
           box-shadow:0 1px 3px rgba(28,39,51,.07); overflow:hidden; }
@@ -103,6 +120,7 @@
 </header>
 <main>
   <div id="who" class="who"></div>
+  <div id="edit" class="ed" hidden></div>
   <div id="body"><div class="load">読み込み中…</div></div>
 </main>
 <script>
@@ -112,6 +130,12 @@ const charts={};
 // キーは「グラフid|系列名」。同じ名前が別のグラフにあっても混ざらないようにするため
 const HIDE=new Set();
 let D=null, PICK=null, DAY=null;
+// 見る人の一覧はこの端末に覚える。サーバは書いたファイルが消えるので保存先にできない。
+// 未設定なら初期メンバー(環境変数KORAN_UIDS)がそのまま出る
+const LSKEY='koranUids';
+let UIDS=(()=>{ try{ const v=JSON.parse(localStorage.getItem(LSKEY)||'null');
+  return (Array.isArray(v)&&v.length)?v:null; }catch(e){ return null; } })();
+const saveUids=()=>{ try{ localStorage.setItem(LSKEY,JSON.stringify(UIDS)); }catch(e){} };
 
 const f1=v=>v==null?'—':v.toLocaleString('ja-JP',{minimumFractionDigits:1,maximumFractionDigits:1});
 const sign=v=>v==null?'—':(v>=0?'+':'')+f1(v);
@@ -217,9 +241,66 @@ function renderWho(){
     return `<button class="${m.uid===PICK?'on':''}" onclick="pick(${m.uid})">
       <i style="background:${m.color}"></i>${m.name}
       <span class="lv">${c.cum!=null?f1(c.cum)+'億':'—'}</span></button>`;
-  }).join('');
+  }).join('')
+  +`<button class="editBtn" onclick="toggleEdit()">${$('#edit').hidden?'＋ メンバーを編集':'✕ 編集を閉じる'}</button>`;
 }
 function pick(uid){ PICK=uid; renderWho(); render(); }
+
+// ---- メンバーの編集(この端末にだけ保存する) ----
+function toggleEdit(){ const e=$('#edit'); e.hidden=!e.hidden; renderWho(); if(!e.hidden) renderEdit(); }
+function renderEdit(hits,msg){
+  const same=UIDS.length===D.default_uids.length && UIDS.every(u=>D.default_uids.includes(u));
+  $('#edit').innerHTML=`
+    <h3>見る人（${D.members.length}人 / 最大${D.max_uids}人）</h3>
+    ${D.members.map(m=>{ const c=cur(m); return `<div class="mem">
+      <i style="background:${m.color}"></i>
+      <span class="nmx">${m.name}</span>
+      <span class="sub">${m.level?'Lv'+m.level+'　':''}${c.cum!=null?f1(c.cum)+'億':'記録なし'}</span>
+      <button onclick="delUid(${m.uid})" ${D.members.length<2?'disabled title="最後のひとりは外せません"':''}>外す</button>
+    </div>`; }).join('')}
+    <hr>
+    <h3>追加する</h3>
+    <div class="row">
+      <input id="q" placeholder="名前 または ユーザーID" style="flex:1;min-width:150px"
+             onkeydown="if(event.key==='Enter')doSearch()">
+      <button class="primary" onclick="doSearch()">検索</button>
+    </div>
+    ${msg?`<div class="msg">${msg}</div>`:''}
+    ${(hits||[]).map(h=>{ const has=UIDS.includes(h.uid); return `<div class="hit">
+      <span class="nmx">${h.name}</span>
+      <span class="sub">${h.level?'Lv'+h.level+'　':''}${h.cum!=null?f1(h.cum)+'億':'記録なし'}${h.rank?'　'+h.rank.toLocaleString()+'位':''}</span>
+      <button ${has?'disabled':`onclick="addUid(${h.uid})"`}>${has?'追加済み':'追加'}</button>
+    </div>`; }).join('')}
+    ${same?'':`<hr><button onclick="resetUids()">初期メンバーに戻す</button>`}`;
+}
+async function doSearch(){
+  const q=$('#q').value.trim();
+  if(!q){ renderEdit(null,'名前かユーザーIDを入れてください'); return; }
+  renderEdit(null,'検索中…');
+  let d;
+  try{ d=await (await fetch('/api/search?q='+encodeURIComponent(q)+'&raid='+D.raid)).json(); }
+  catch(e){ renderEdit(null,'検索できませんでした'); return; }
+  if(d.error){ renderEdit(null,d.error); return; }
+  $('#q') && ($('#q').value=q);
+  renderEdit(d.hits, d.hits.length?`${d.hits.length}件（同名が多いので Lv と貢献度で見分けてください）`:'見つかりませんでした');
+  if($('#q')) $('#q').value=q;
+}
+async function addUid(uid){
+  if(UIDS.includes(uid)) return;
+  if(UIDS.length>=D.max_uids){ renderEdit(null,`これ以上は追加できません（最大${D.max_uids}人）`); return; }
+  UIDS=[...UIDS,uid]; saveUids(); await load(); renderEdit(null,'追加しました');
+}
+async function delUid(uid){
+  if(UIDS.length<2) return;
+  UIDS=UIDS.filter(u=>u!==uid); saveUids();
+  if(PICK===uid) PICK=null;
+  await load(); renderEdit(null,'外しました');
+}
+async function resetUids(){
+  UIDS=[...D.default_uids];
+  try{ localStorage.removeItem(LSKEY); }catch(e){}
+  PICK=null; await load(); renderEdit(null,'初期メンバーに戻しました');
+}
 
 // 3本のラインそれぞれに対する到達状況。到達済みは緑、未到達は「あと◯億」
 function statusCell(v,lv){
@@ -372,10 +453,12 @@ function render(){
 async function load(){
   $('#body').innerHTML='<div class="load">読み込み中…</div>';
   let d;
-  try{ d=await (await fetch('/api/board?raid='+($('#raidSel').value||''))).json(); }
+  try{ d=await (await fetch('/api/board?raid='+($('#raidSel').value||'')
+        +(UIDS?'&uids='+UIDS.join(','):''))).json(); }
   catch(e){ $('#body').innerHTML='<div class="card">取得できませんでした。もう一度「更新」を押してください</div>'; return; }
   if(d.error){ $('#body').innerHTML=`<div class="card">${d.error}</div>`; return; }
   D=d;
+  if(!UIDS) UIDS=D.members.map(m=>m.uid);   // 初回は初期メンバーをそのまま一覧にする
   $('#raidSel').innerHTML=d.raids.map(r=>`<option value="${r}" ${r===d.raid?'selected':''}>第${r}回</option>`).join('');
   if(!D.members.some(m=>m.uid===PICK)) PICK=D.members[0].uid;
   // 対象日は開催中なら今日。期間外や過去回は記録のある最終日

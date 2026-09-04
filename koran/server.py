@@ -45,15 +45,17 @@ def _members():
     return out
 
 
-MEMBERS = _members()
+MEMBERS = _members()          # 画面が何も指定しなかったときの初期メンバー
+MAX_UIDS = 15                 # 1リクエストで見る人数の上限(URLとレスポンスが膨らむのを防ぐ)
 
 # 並べるボーダー。ラベルはそのまま画面に出る
 LINES = [(2000, "英雄(2000位)", "#D85A30"),
          (100000, "10万位", "#1D9E75"),
          (150000, "15万位", "#8A6FC4")]
 
-# 人の線の色(登録順)。ボーダーと混ざらない色にしてある
-MCOLORS = ["#378ADD", "#E8A33D", "#2FA8A0", "#C9578E", "#6E7BD6", "#B5762E"]
+# 人の線の色(登録順)。ボーダーの赤・緑・紫と混ざらない色。人数が色数を超えたら循環する
+MCOLORS = ["#378ADD", "#E8A33D", "#2FA8A0", "#C9578E", "#6E7BD6", "#B5762E",
+           "#4B9E5F", "#D4694A", "#7E63A8", "#2C7A8C"]
 
 DAY_LABEL = {1: "予選1日目", 2: "予選2日目", 3: "インターバル",
              4: "本戦1日目", 5: "本戦2日目", 6: "本戦3日目", 7: "本戦4日目"}
@@ -107,13 +109,13 @@ def oku(p):
     return None if p is None else round(p / 1e8, 1)
 
 
-def fetch(raid):
-    """1リクエストでボーダー3本＋メンバー全員の時刻毎を取る。
-    開催中は毎時更新なので短め、終わった回は動かないので長めにキャッシュする"""
+def fetch(raid, uids):
+    """1リクエストでボーダー3本＋指定した人全員の時刻毎を取る。
+    URLにuidsが入るので、見る人ごとに違う一覧でもキャッシュは混ざらない"""
     url = (f"{GBF}/users/borders?raid_number={raid}"
            f"&ranks={','.join(str(r) for r, _, _ in LINES)}")
-    if MEMBERS:                      # 空のuser_idsを付けるとgbfdataがエラーを返す
-        url += f"&user_ids={','.join(str(u) for u in MEMBERS)}"
+    if uids:                         # 空のuser_idsを付けるとgbfdataがエラーを返す
+        url += f"&user_ids={','.join(str(u) for u in uids)}"
     return get(url, ttl=180)
 
 
@@ -165,8 +167,8 @@ def daily(points):
     return out
 
 
-def build(raid):
-    d = fetch(raid)
+def build(raid, uids):
+    d = fetch(raid, uids)
     if not d:
         return None
     keys = []                                   # 全系列の時刻を通しで並べる
@@ -199,7 +201,7 @@ def build(raid):
 
     byuid = {u.get("user_id"): u for u in (d.get("users") or [])}
     members = []
-    for i, uid in enumerate(MEMBERS):
+    for i, uid in enumerate(uids):
         u = byuid.get(uid) or {}
         cum, rank = series(u.get("points"))
         members.append({"uid": uid, "name": u.get("name") or str(uid),
@@ -251,10 +253,67 @@ def project(cur, prev):
     return out
 
 
+def uids_arg(q):
+    """画面が持っている一覧。指定が無ければ初期メンバー。
+    重複を潰し、上限で切る(URLは誰でも叩けるので鵜呑みにしない)"""
+    raw = q.get("uids", [""])[0]
+    out = []
+    for tok in raw.split(","):
+        tok = tok.strip()
+        if tok.isdigit() and int(tok) not in out:
+            out.append(int(tok))
+    return (out or list(MEMBERS))[:MAX_UIDS]
+
+
+def api_search(q):
+    """名前で人を探す。ブラウザからgbfdataを直接叩けないのでサーバが中継する。
+    同名が多い(「TOMO」で20件)ので、現在の貢献度と順位も付けて選べるようにする"""
+    term = (q.get("q", [""])[0] or "").strip()
+    if not term:
+        return {"error": "名前を入力してください"}
+    if term.isdigit():                       # IDを直接入れられたときはそれ1件として扱う
+        cand = [{"user_id": int(term), "name": term, "level": None}]
+    else:
+        d = get(f"{GBF}/users/search?q={urllib.parse.quote(term)}", ttl=600)
+        cand = (d or {}).get("data") or []
+    cand = [c for c in cand if c.get("user_id")][:12]
+    if not cand:
+        return {"hits": []}
+
+    # 候補の現在値を1リクエストでまとめて取る。同名の見分けはこれが決め手になる
+    raid = raid_arg(q)
+    d = fetch(raid, [c["user_id"] for c in cand])
+    cum = {}
+    for u in (d or {}).get("users") or []:
+        pts = [p for p in (u.get("points") or []) if p.get("point") is not None]
+        if pts:
+            cum[u["user_id"]] = (oku(pts[-1]["point"]), pts[-1].get("rank"), u.get("name"), u.get("level"))
+    hits = []
+    for c in cand:
+        got = cum.get(c["user_id"])
+        hits.append({"uid": c["user_id"], "name": (got[2] if got else None) or c.get("name"),
+                     "level": (got[3] if got else None) or c.get("level"),
+                     "cum": got[0] if got else None, "rank": got[1] if got else None})
+    # 貢献度の多い順。探しているのは走っている人であることが多い
+    hits.sort(key=lambda h: -(h["cum"] or -1))
+    return {"raid": raid, "hits": hits}
+
+
+def raid_arg(q):
+    meta = raid_meta()
+    try:
+        r = int(q.get("raid", [""])[0])
+    except ValueError:
+        r = meta["latest"]
+    return r if r in meta["raids"] else meta["latest"]
+
+
 def api_board(q):
-    if not MEMBERS:
+    uids = uids_arg(q)
+    if not uids:
         return {"error": "追跡する人が設定されていません。"
-                         "環境変数 KORAN_UIDS にユーザーIDをカンマ区切りで設定してください"}
+                         "画面の「メンバーを編集」から追加するか、"
+                         "環境変数 KORAN_UIDS に初期メンバーを設定してください"}
     meta = raid_meta()
     if not meta["raids"]:
         return {"error": "gbfdataから開催情報を取得できませんでした"}
@@ -266,13 +325,16 @@ def api_board(q):
         raid = meta["latest"]
 
     with ThreadPoolExecutor(max_workers=2) as ex:
-        fc, fp = ex.submit(build, raid), ex.submit(build, raid - 1)
+        fc = ex.submit(build, raid, uids)
+        fp = ex.submit(build, raid - 1, uids)
         cur, prev = fc.result(), fp.result()
     if not cur:
         return {"error": f"第{raid}回のデータがまだありません"}
 
     cur["raids"] = meta["raids"]
     cur["latest"] = meta["latest"]
+    cur["default_uids"] = list(MEMBERS)      # 「初期メンバーに戻す」で使う
+    cur["max_uids"] = MAX_UIDS
     cur["today"] = jst_today()
     cur["proj"] = project(cur, prev)
     # 前回は着地見込みの計算に使うだけなので、最終値だけ返して転送量を抑える
@@ -299,10 +361,11 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         u = urllib.parse.urlparse(self.path)
-        if u.path == "/api/board":
-            body = json.dumps(api_board(urllib.parse.parse_qs(u.query)),
-                              ensure_ascii=False).encode()
-            self._send(body, "application/json; charset=utf-8")
+        if u.path in ("/api/board", "/api/search"):
+            q = urllib.parse.parse_qs(u.query)
+            data = api_board(q) if u.path == "/api/board" else api_search(q)
+            self._send(json.dumps(data, ensure_ascii=False).encode(),
+                       "application/json; charset=utf-8")
             return
         name = "index.html" if u.path == "/" else u.path.lstrip("/")
         path = os.path.normpath(os.path.join(STATIC, name))

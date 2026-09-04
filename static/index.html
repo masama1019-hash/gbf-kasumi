@@ -479,13 +479,28 @@ async function loadYosen(){
   LAST_TICK='yosen:'+(li>=0?L[li]:'');
   const lo=li>=0?oc[li]:null, lb=li>=0?bc[li]:null, lr=li>=0?orank[li]:null;
   const diff=(lo!=null&&lb!=null)?lo-lb:null;
-  const p=d.prev;
   const mxO=mxOf(os), mxB=mxOf(bs);   // 時速のピーク(表で強調する)
-  // 前回を開始時刻(20時)そろえでインデックス整列(今回と前回どちらも同じ予選タイムライン構造)
-  const pcum=(side)=>{ if(!p)return[]; const pv=Object.values(p[side].cum);
-    return K.map((_,i)=>i<pv.length?pv[i]:null); };
-  const pspd=(side)=>{ if(!p)return[]; const pv=Object.values(p[side].speed||{});
-    return K.map((_,i)=>i<pv.length?pv[i]:null); };
+  // 前回は日付が違うので「予選何日目の何時か」で今回に重ねる。
+  // ⚠️ 以前は出てきた順(インデックス)で並べていた。前回の毎時がgbfdataから消えて
+  //    日終わりの2点しか残っていないとき、その2点が20時・21時の位置に置かれ、
+  //    グラフが冒頭で垂直に跳ね上がっていた(第82回を開くと再現)
+  const slot=ks=>{ const ds=[...new Set(ks.map(k=>k.split(' ')[0]))].sort();
+    return k=>ds.indexOf(k.split(' ')[0])+'|'+k.split(' ')[1]; };
+  const align=obj=>{ const at=slot(K), pos=new Map();
+    K.forEach((k,i)=>pos.set(at(k),i));
+    const pk=Object.keys(obj||{}).sort(), pat=slot(pk), out=K.map(()=>null);
+    pk.forEach(k=>{ const i=pos.get(pat(k)); if(i!=null) out[i]=obj[k]; });
+    return out; };
+  // 前回の毎時が数点しか残っていないなら重ねない。線でつなぐと、実際には無い
+  // 推移があるように見えてしまう(数値は下の表と着地予想でそのまま使える)
+  let p=d.prev, pThin=false;
+  if(p){
+    const n=align(p.ours.cum).filter(v=>v!=null).length
+           +align(p.border.cum).filter(v=>v!=null).length;
+    if(n < K.length*2/3){ pThin=true; }
+  }
+  const pcum=(side)=>p?align(p[side].cum):[];
+  const pspd=(side)=>p?align(p[side].speed||{}):[];
   const pb=pcum('border');
   // 300位ボーダー 今回 vs 前回(同時刻)
   const lpb=(li>=0&&li<pb.length)?pb[li]:null;
@@ -508,6 +523,9 @@ async function loadYosen(){
     diff>=0
       ? `現在は<b>通過圏内</b>です。${projFinal!=null?`300位の着地予想は ${f1(projFinal)}億${ourMargin!=null?`で、いまの貢献度との差は ${ourMargin>=0?'+':''}${f1(ourMargin)}億`:''}。`:''}${bpct!=null?`ボーダーは前回同時刻比 ${bpct}%${trendTxt(bpct)}。`:''}`
       : `現在は<b>圏外</b>です。${projFinal!=null?`300位の着地予想は ${f1(projFinal)}億${ourMargin!=null?`で、あと ${f1(-ourMargin)}億 必要`:''}。`:''}${bpct!=null?`ボーダーは前回同時刻比 ${bpct}%${trendTxt(bpct)}。`:''}`);
+  // 前回を重ねられないときは、見出しから「破線=前回」を外して理由を出す
+  const pvTag=(p&&!pThin)?` — 実線=今回(第${d.raid}回) / 破線=前回(第${d.raid-1}回)`:'';
+  const pvNote=pThin?`<div class="card" style="font-size:12.5px;color:var(--mut)">第${d.raid-1}回の毎時データはgbfdataに残っていないため、前回の推移は重ねていません（残っているのは各日終わりの値だけです）。下の表の「前回300位」と着地予想には使えています</div>`:'';
   const yosenHero=`
     <div class="hero">
       <div class="heroTop">
@@ -532,8 +550,9 @@ async function loadYosen(){
       ${p?`<div><div class="k">300位 前回同時刻比</div><div class="v">${bpct!=null?bpct:'—'}<span class="u">%</span></div><div class="k">前回${lpb?.toFixed(1)??'—'}億${bdiff!=null?` / ${bdiff>0?'+':''}${bdiff.toFixed(1)}億`:''}${trendTxt(bpct)}</div></div>`:''}
       ${projFinal!=null?`<div><div class="k">300位ボーダー着地予想</div><div class="v">${f1(projFinal)}<span class="u">億</span></div><div class="k">前回最終${f1(prevFinal)}億を基準</div></div>`:''}
     </div>
-    <div class="card"><h2>累積貢献度（億）— 実線=今回(第${d.raid}回) / 破線=前回(第${d.raid-1}回)</h2><div class="chartbox"><canvas id="yCum"></canvas></div></div>
-    <div class="card"><h2>時速（億/h）— 実線=今回(第${d.raid}回) / 破線=前回(第${d.raid-1}回)</h2><div class="chartbox"><canvas id="ySpd"></canvas></div></div>
+    ${pvNote}
+    <div class="card"><h2>累積貢献度（億）${pvTag}</h2><div class="chartbox"><canvas id="yCum"></canvas></div></div>
+    <div class="card"><h2>時速（億/h）${pvTag}</h2><div class="chartbox"><canvas id="ySpd"></canvas></div></div>
     <div class="card"><h2>予選推移（数値・億）</h2><div class="tw"><table><tr><th>時刻</th><th>霞桜団</th><th>順位</th><th>時速</th><th>300位</th><th>時速</th><th>差</th>${p?'<th>前回300位</th><th>前回比</th>':''}</tr>${
       K.map((k,i)=>{const df=(oc[i]!=null&&bc[i]!=null)?oc[i]-bc[i]:null; const bd=(bc[i]!=null&&pb[i]!=null)?bc[i]-pb[i]:null;
         return `<tr><td>${L[i]}</td><td>${f1(oc[i])}</td><td style="color:var(--mut)">${orank[i]?orank[i]+'位':'—'}</td><td class="sp${mxCls(os[i],mxO)}">${f1(os[i])}</td><td>${f1(bc[i])}</td><td class="sp${mxCls(bs[i],mxB)}">${f1(bs[i])}</td><td class="${df!=null?(df>=0?'good':'bad'):''}">${df!=null?(df>0?'+':'')+df.toFixed(1):'—'}</td>${p?`<td style="color:var(--mut)">${f1(pb[i])}</td><td class="${bd!=null?(bd>0?'bad':'good'):''}">${bd!=null?(bd>0?'+':'')+bd.toFixed(1):'—'}</td>`:''}</tr>`;}).join('')
@@ -543,13 +562,13 @@ async function loadYosen(){
   mkChart('#yCum','line',L,[
     {label:'霞桜団',data:oc,borderColor:'#378ADD',area:'3d',endLabel:true,tension:.35,pointRadius:0,borderWidth:2,spanGaps:true},
     {label:'300位',data:bc,borderColor:'#D85A30',endLabel:true,tension:.35,pointRadius:0,borderWidth:2,spanGaps:true},
-    ...(p?[{label:'前回 霞桜団',data:pcum('ours'),borderColor:'#378ADD',borderDash:[4,3],tension:.35,pointRadius:0,borderWidth:1.2,spanGaps:true},
+    ...((p&&!pThin)?[{label:'前回 霞桜団',data:pcum('ours'),borderColor:'#378ADD',borderDash:[4,3],tension:.35,pointRadius:0,borderWidth:1.2,spanGaps:true},
          {label:'前回 300位',data:pcum('border'),borderColor:'#D85A30',borderDash:[4,3],tension:.35,pointRadius:0,borderWidth:1.2,spanGaps:true}]:[]),
     ...(projFinal!=null?[{label:'300位 着地予想',data:L.map(()=>projFinal),borderColor:'#993C1D',borderDash:[2,3],tension:0,pointRadius:0,borderWidth:1.2}]:[])]);
   mkChart('#ySpd','line',L,[
     {label:'霞桜団',data:os,borderColor:'#378ADD',tension:.35,pointRadius:0,borderWidth:2,spanGaps:true},
     {label:'300位',data:bs,borderColor:'#D85A30',tension:.35,pointRadius:0,borderWidth:2,spanGaps:true},
-    ...(p?[{label:'前回 霞桜団',data:pspd('ours'),borderColor:'#378ADD',borderDash:[4,3],tension:.35,pointRadius:0,borderWidth:1.2,spanGaps:true},
+    ...((p&&!pThin)?[{label:'前回 霞桜団',data:pspd('ours'),borderColor:'#378ADD',borderDash:[4,3],tension:.35,pointRadius:0,borderWidth:1.2,spanGaps:true},
          {label:'前回 300位',data:pspd('border'),borderColor:'#D85A30',borderDash:[4,3],tension:.35,pointRadius:0,borderWidth:1.2,spanGaps:true}]:[])]);
 }
 // 撤退は団の意思決定なので自動判定できず、団員全員の画面に反映させたい。

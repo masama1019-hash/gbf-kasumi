@@ -1454,6 +1454,78 @@ def koran_time_proj(raid, do, uid, hint, cur, times, hist, confirmed=False):
             "vs100k": round(pp - p1, 1) if (pp is not None and p1 is not None) else None}
 
 
+KORAN_ALL_MAX = 40      # 1リクエストで見る人数の上限(URLと取得量を抑える)
+
+
+def api_koran_all(q):
+    """一覧の全員をまとめて1画面に出す。
+
+    要は users/borders の user_ids。ここに複数IDを渡すと、指定した人全員の
+    時刻毎(順位つき)が1リクエストで返る。団員30名で2.3秒。
+    ⚠️ 1人ずつ api_koran を回すと user_histories が人数ぶん走って桁違いに遅い。
+    レスポンスは759KBあるので、必要な数字だけに畳んでから画面に返すこと"""
+    raid = raid_arg(q) or meta_for()["raid"]
+    raw = q.get("uids", [""])[0]
+    uids, seen = [], set()
+    for tok in raw.split(","):
+        tok = tok.strip()
+        if tok.isdigit() and int(tok) not in seen:
+            seen.add(int(tok))
+            uids.append(int(tok))
+    if not uids:
+        uids = [u for _, u in MEMBERS]
+    uids = uids[:KORAN_ALL_MAX]
+
+    url = (f"{GBF}/users/borders?raid_number={raid}&ranks=2000,100000"
+           f"&user_ids={','.join(str(u) for u in uids)}")
+    d = get(url, ttl=180)
+    if not d:
+        return {"error": f"第{raid}回のデータを取得できませんでした"}
+
+    def last_pt(points):
+        pts = [p for p in (points or []) if p.get("point") is not None]
+        return pts[-1] if pts else None
+
+    def by_day(points):
+        """day_of別の「その日ぶん」。日終わりの通算累積の差を取る"""
+        end = {}
+        for p in points or []:
+            if p.get("day_of") and p.get("point") is not None:
+                end[p["day_of"]] = p["point"]       # 時系列順なので上書きで日終わり
+        out, prev = {}, 0
+        for do in sorted(end):
+            out[do] = round((end[do] - prev) / 1e8, 1)
+            prev = end[do]
+        return out
+
+    lines = {}
+    for sr in d.get("data") or []:
+        lp = last_pt(sr.get("points"))
+        if lp:
+            lines[str(sr.get("target_rank"))] = round(lp["point"] / 1e8, 1)
+
+    byuid = {u.get("user_id"): u for u in (d.get("users") or [])}
+    name_of = {u: n for n, u in MEMBERS}
+    rows = []
+    for uid in uids:
+        u = byuid.get(uid) or {}
+        lp = last_pt(u.get("points"))
+        rows.append({"uid": uid, "name": u.get("name") or name_of.get(uid) or f"ID{uid}",
+                     "level": u.get("level"),
+                     "cum": round(lp["point"] / 1e8, 1) if lp else None,
+                     "rank": lp.get("rank") if lp else None,
+                     "days": by_day(u.get("points"))})
+    rows.sort(key=lambda r: -(r["cum"] if r["cum"] is not None else -1))
+
+    days = sorted({do for r in rows for do in r["days"]})
+    total = round(sum(r["cum"] for r in rows if r["cum"] is not None), 1)
+    at = last_pt((d.get("data") or [{}])[0].get("points")) if d.get("data") else None
+    return {"raid": raid, "rows": rows, "lines": lines,
+            "days": [{"day_of": do, "label": KORAN_LABELS.get(do, f"{do}日目")} for do in days],
+            "total": total, "n": len(rows),
+            "at": hour_label(at["time"]) if at else None}
+
+
 def api_koran(q):
     raid = raid_arg(q) or meta_for()["raid"]
     query = (q.get("q", [""])[0] or "").strip()
@@ -1889,7 +1961,7 @@ def api_opponent(data):
 
 ROUTES = {"/api/config": api_config, "/api/live": api_live,
           "/api/scout": api_scout, "/api/yosen": api_yosen, "/api/koran": api_koran,
-          "/api/scout_speed": api_scout_speed}
+          "/api/scout_speed": api_scout_speed, "/api/koran_all": api_koran_all}
 
 
 class Handler(BaseHTTPRequestHandler):

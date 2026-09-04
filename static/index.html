@@ -122,6 +122,8 @@
   .tw table { width:auto; min-width:100%; }
   .tw th, .tw td { white-space:nowrap; }
   th:first-child,td:first-child { text-align:left; }
+  /* 1列目が順位番号の表。名前の2列目を左寄せにする(数値列は右寄せのまま) */
+  table.rank th:nth-child(2), table.rank td:nth-child(2) { text-align:left; }
   .good { color:var(--green); font-weight:600; } .bad { color:var(--red); font-weight:600; }
   /* 時速セル。既定は控えめな色にして、その列の最高時速だけ .mx で立たせる。
      .sp を先に書かないと同じ詳細度で .mx の色が打ち消される */
@@ -191,6 +193,7 @@
         <option value="2000">英雄(2000位)</option>
       </select>
       <button class="primary" onclick="loadKoran()">検索</button>
+      <button onclick="loadKoranAll()" title="一覧の全員をまとめて表示します">団全体</button>
       <button onclick="toggleKoranEdit()">編集</button>
     </div>
     <div id="koranEdit" hidden></div>
@@ -269,8 +272,8 @@ function drawKeys(canvas,datasets){
 // 枠に接しない分だけでよい。以前は札の幅ぶん80〜104px空けていたが、全て死に余白だった
 const padR=()=>window.innerWidth<620?10:16;
 function mkChart(id,type,labels,datasets,extra={}){
+  const el=$(id); if(!el) return;      // 描画先が消えていたら何もしない
   if(charts[id]) charts[id].destroy();
-  const el=$(id);
   // ds.area='3d' のように指定された系列だけ面を塗る(累積グラフの主役のみ)
   datasets.forEach(ds=>{
     if(ds.area){ ds.keyColor=ds.borderColor; ds.backgroundColor=areaGrad(ds.borderColor,ds.area); ds.fill=true; }
@@ -1109,6 +1112,52 @@ function kmReset(){
   renderKoranMem(); renderKoranEdit('団員の初期一覧に戻しました');
 }
 
+// 一覧の全員をまとめて表示。1人ずつ検索すると人数ぶん時間がかかるので、
+// サーバ側で users/borders の user_ids に全員を渡して1リクエストで取る(30名で2.3秒)
+async function loadKoranAll(){
+  $('#koranBody').innerHTML='<div class="load">団全体を集計中…(30名で数秒)</div>';
+  const uids=kmList().map(m=>m.uid).join(',');
+  let d;
+  try{ d=await (await fetch('/api/koran_all?raid='+$('#raidSel').value+'&uids='+uids)).json(); }
+  catch(e){ $('#koranBody').innerHTML='<div class="card bad">取得に時間がかかり切断されました。もう一度押してください</div>'; return; }
+  if(d.error){ $('#koranBody').innerHTML=`<div class="card bad">${d.error}</div>`; return; }
+  KORAN_TICK='all:'+(d.at||'')+':'+d.total;
+  const b2=d.lines['2000'], b1=d.lines['100000'];
+  // ラインに届いているかは「到達 +◯」「あと ◯」で出す。赤は使わない(相手団の色と紛れるため)
+  const cell=(v,lv)=>v==null||lv==null?'<td>—</td>'
+    :(v>=lv?`<td class="good">到達 +${f1(v-lv)}</td>`:`<td>あと ${f1(lv-v)}</td>`);
+  const dsum=r=>Object.values(r.days).reduce((a,b)=>a+b,0);
+  const dayMax={};                      // 日ごとの最大値。その日いちばん走った人を強調する
+  d.days.forEach(x=>{ dayMax[x.day_of]=Math.max(...d.rows.map(r=>r.days[x.day_of]??-1)); });
+
+  $('#koranBody').innerHTML=`
+    <div class="strip">
+      <div><div class="k">人数</div><div class="v">${d.n}<span class="u">名</span></div><div class="k">${d.at?d.at+'時点':''}</div></div>
+      <div><div class="k">個人貢献度の合計</div><div class="v">${f1(d.total)}<span class="u">億</span></div><div class="k">一覧の全員ぶん</div></div>
+      <div><div class="k">英雄(2000位)</div><div class="v">${f1(b2)}<span class="u">億</span></div><div class="k">到達 ${d.rows.filter(r=>r.cum!=null&&b2!=null&&r.cum>=b2).length}名</div></div>
+      <div><div class="k">10万位</div><div class="v">${f1(b1)}<span class="u">億</span></div><div class="k">到達 ${d.rows.filter(r=>r.cum!=null&&b1!=null&&r.cum>=b1).length}名</div></div>
+    </div>
+    <div class="card"><h2>到達状況（第${d.raid}回）</h2><div class="tw"><table class="rank">
+      <tr><th></th><th>名前</th><th>累積</th><th>全体順位</th><th>英雄(2000位)</th><th>10万位</th></tr>
+      ${d.rows.map((r,i)=>`<tr>
+        <td style="color:var(--mut)">${i+1}</td>
+        <td>${r.name}</td><td>${f1(r.cum)}</td>
+        <td style="color:var(--mut)">${r.rank?r.rank.toLocaleString()+'位':'—'}</td>
+        ${cell(r.cum,b2)}${cell(r.cum,b1)}
+        <td><button style="font-size:11.5px;padding:2px 9px" onclick="$('#koranQ').value='${r.uid}';loadKoran()">詳細</button></td></tr>`).join('')}
+    </table></div></div>
+    <div class="card"><h2>日別の貢献度（億）</h2><div class="tw"><table class="rank">
+      <tr><th></th><th>名前</th>${d.days.map(x=>`<th>${x.label}</th>`).join('')}<th>合計</th></tr>
+      ${d.rows.map((r,i)=>`<tr>
+        <td style="color:var(--mut)">${i+1}</td><td>${r.name}</td>
+        ${d.days.map(x=>{const v=r.days[x.day_of];
+          return `<td class="sp${v!=null&&v===dayMax[x.day_of]?' mx':''}">${f1(v)}</td>`;}).join('')}
+        <td>${f1(dsum(r))}</td></tr>`).join('')}
+    </table></div>
+      <div style="font-size:11.5px;color:var(--mut);margin-top:8px">各日の最高値を色付き。合計は日別の足し上げで、累積と一致します</div>
+    </div>`;
+}
+
 async function loadKoran(){
   const q=$('#koranQ').value.trim(); if(!q)return;
   $('#koranBody').innerHTML='<div class="load">検索中…(初回は30秒ほど)</div>';
@@ -1195,7 +1244,10 @@ async function loadKoranHour(q, sch, name, s2, s1){
   box.innerHTML=`<div class="card"><h2>${lbl} の時刻毎（億・1H）</h2><div class="load">取得中…(順位が深いと1分ほどかかります)</div></div>`;
   let d;
   try{ d=await (await fetch('/api/koran?q='+encodeURIComponent(q)+'&raid='+$('#raidSel').value+'&day='+sch.day)).json(); }
-  catch(e){ box.innerHTML='<div class="card" style="font-size:12px;color:var(--mut)">時刻毎データの取得に失敗しました</div>'; return; }
+  catch(e){ if(document.body.contains(box)) box.innerHTML='<div class="card" style="font-size:12px;color:var(--mut)">時刻毎データの取得に失敗しました</div>'; return; }
+  // 時刻毎は数十秒かかる。待っている間に別の表示(団全体など)へ切り替わっていたら、
+  // 枠ごと消えているので何もしない(消えたcanvasにmkChartが描こうとして落ちる)
+  if(!document.body.contains(box)) return;
   if(d.error||!d.times||!d.times.length){
     box.innerHTML=`<div class="card" style="font-size:12px;color:var(--mut)">${d.error||'この日の時刻毎データはgbfdataに未収録です'}</div>`; return;
   }

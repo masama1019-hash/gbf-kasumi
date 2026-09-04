@@ -572,6 +572,23 @@ def api_live(q):
 
     ours = res.get(("ours", date), {})
     opp = res.get(("opp", date), {})
+
+    # gbfdataは毎時データを直近2回ぶんしか持たない。開催中に見た内容を保存しておかないと
+    # 後から追えなくなるので、相手を保存済みの本戦日は自動で写しておく。
+    # 書き込みは画面を待たせないよう別スレッドで、増えたときだけ行う(log_save内で判定)
+    archived = False
+    saved_opp = opp_map().get(f"{raid}|{date}")
+    if saved_opp and opp_gid:
+        threading.Thread(target=log_save,
+                         args=(raid, date, ours, opp, opp_name, opp_gid),
+                         daemon=True).start()
+    # gbfdataから消えていたら保存済みで代替する
+    if not (any(v is not None for v in ours.values()) or any(v is not None for v in opp.values())):
+        lg = log_get(raid, date)
+        if lg:
+            ours = {h: v for h, v in zip(HOURS, lg.get("o") or []) if v is not None}
+            opp = {h: v for h, v in zip(HOURS, lg.get("p") or []) if v is not None}
+            archived = bool(ours or opp)
     past = [{"date": d, "label": day_label.get(d, d),
              "ours": {"cum": res.get(("ours", d), {}), "speed": _speeds(res.get(("ours", d), {}))},
              "opp": {"cum": res.get(("opp", d), {}), "speed": _speeds(res.get(("opp", d), {}))}}
@@ -697,7 +714,9 @@ def api_live(q):
     return {"date": date, "raid": raid, "hours": HOURS, "label": day_label.get(date, date),
             "ours": {"name": OURS_NAME, "cum": ours, "speed": _speeds(ours)},
             "opp": {"name": opp_name or "", "gid": opp_gid, "cum": opp, "speed": _speeds(opp)},
-            "past": past, "ref": ref, "forecast": forecast, "rank_history": rank_history}
+            "past": past, "ref": ref, "forecast": forecast, "rank_history": rank_history,
+            # gbfdataから消えていて保存済みで代替したか(画面に出典を明示するため)
+            "archived": archived}
 
 
 def api_scout(q):
@@ -1050,9 +1069,30 @@ def api_yosen(q):
         fc = ex.submit(yosen_series, raid, yosen_dates(raid))
         fp = ex.submit(yosen_series, raid - 1, pdates) if pdates else None
         cur, prev = fc.result(), (fp.result() if fp else None)
+
+    # gbfdataは毎時データを直近2回ぶんしか持たない。開催中に見た内容を保存しておく
+    # (本戦と同じセル、キーは「開催回|yosen」)。書き込みは画面を待たせない
+    def has(x):
+        return bool(x) and bool(x["ours"]["cum"] or x["border"]["cum"])
+    archived = pv_archived = False
+    if has(cur):
+        threading.Thread(target=ylog_save,
+                         args=(raid, cur["keys"], cur["labels"],
+                               cur["ours"]["cum"], cur["border"]["cum"]),
+                         daemon=True).start()
+    else:                                        # 消えていたら保存済みで代替
+        got = ylog_get(raid)
+        if got:
+            cur, archived = got, True
+    if not has(prev):                            # 前回オーバーレイも同様に補える
+        got = ylog_get(raid - 1)
+        if got:
+            prev, pv_archived = got, True
+
     return {"raid": raid, "keys": cur["keys"], "labels": cur["labels"],
             "ours": cur["ours"], "border": cur["border"],
             "border_history": yosen_border_history(raid),
+            "archived": archived, "prev_archived": pv_archived,
             "prev": {"labels": prev["labels"], "ours": prev["ours"], "border": prev["border"]} if prev else None}
 
 
@@ -1623,12 +1663,18 @@ GAS_SSID = os.environ.get("GAS_SSID", "")
 GAS_SHEET = os.environ.get("GAS_SHEET", "撤退")
 GAS_CELL = os.environ.get("GAS_CELL", "A1")
 GAS_CELL_OPP = os.environ.get("GAS_CELL_OPP", "A2")   # 対戦相手の保存先(同じタブの別セル)
+GAS_CELL_LOG = os.environ.get("GAS_CELL_LOG", "A3")   # 本戦の毎時ログ(同上)
 RETREAT_TTL = 60                      # スプレッドシートを読み直す間隔(秒)
 _retreat = {"at": 0.0, "map": None}   # map: {"83|2026-06-24": True}
 _retreat_lock = threading.Lock()
 # 対戦相手。本戦は1日1試合なのでキーは撤退フラグと同じ「開催回|日付」
 _opp = {"at": 0.0, "map": None}       # map: {"83|2026-06-24": {"gid":..,"name":..}}
 _opp_lock = threading.Lock()
+# 本戦の毎時ログ。gbfdataは毎時データを直近2回ぶんしか持たないので、
+# 開催中に見た内容をこちらへ写しておかないと後から追えなくなる。
+# 時刻の並びはHOURSで固定なので保存せず、値の配列だけを持つ(1日約400バイト)
+_log = {"at": 0.0, "map": None}       # map: {"83|2026-06-24": {"o":[..],"p":[..],"n":..,"g":..}}
+_log_lock = threading.Lock()
 
 
 def _gas(payload, timeout=25):
@@ -1720,6 +1766,102 @@ def opp_for_raid(raid):
     """その開催回の {日付: {gid, name}}。画面が相手欄を自動で埋めるのに使う"""
     pre = f"{raid}|"
     return {k[len(pre):]: v for k, v in opp_map().items() if k.startswith(pre)}
+
+
+def log_map():
+    """保存済みの毎時ログ。撤退・相手と同じくTTLの間はメモリのものを使う"""
+    now = time.time()
+    with _log_lock:
+        if _log["map"] is not None and now - _log["at"] < RETREAT_TTL:
+            return _log["map"]
+    d = _gas({"read": f"{GAS_CELL_LOG}:{GAS_CELL_LOG}"})
+    m = {}
+    if d and d.get("status") == "ok":
+        raw = ((d.get("values") or [[""]])[0] or [""])[0]
+        if isinstance(raw, str) and raw.strip().startswith("{"):
+            try:
+                m = {k: v for k, v in json.loads(raw).items() if isinstance(v, dict)}
+            except Exception:
+                m = {}
+    with _log_lock:
+        if d is None and _log["map"] is not None:
+            return _log["map"]
+        _log["map"], _log["at"] = m, now
+        return m
+
+
+def _measured(arr):
+    return sum(1 for v in (arr or []) if v is not None)
+
+
+def log_save(raid, date, ours, opp, opp_name, opp_gid):
+    """毎時ログを追記。取れた時刻数が保存済みより増えたときだけ書く。
+    画面を待たせないよう別スレッドから呼ぶこと"""
+    key = f"{raid}|{date}"
+    o = [ours.get(h) for h in HOURS]
+    p = [opp.get(h) for h in HOURS]
+    if not (_measured(o) or _measured(p)):
+        return
+    m = dict(log_map())
+    old = m.get(key)
+    if old and _measured(old.get("o")) >= _measured(o) and _measured(old.get("p")) >= _measured(p):
+        return                                   # 増えていないので書かない
+    m[key] = {"o": o, "p": p, "n": opp_name or "", "g": str(opp_gid or "")}
+    saved = _gas({"cell": GAS_CELL_LOG, "value": json.dumps(m, ensure_ascii=False,
+                                                            separators=(",", ":"))})
+    if saved and saved.get("status") == "ok":
+        with _log_lock:
+            _log["map"], _log["at"] = m, time.time()
+
+
+def log_get(raid, date):
+    return log_map().get(f"{raid}|{date}")
+
+
+def ylog_save(raid, keys, labels, ours_cum, border_cum):
+    """予選の毎時ログ。本戦と同じセルにキー「開催回|yosen」で入れる。
+    予選のキーは "2026-06-21 20:00" 形式で本戦の "HH:00" と違い、時刻の並びも
+    回によって変わるので、keys と表示用の labels を一緒に持つ"""
+    key = f"{raid}|yosen"
+    o = [ours_cum.get(k) for k in keys]
+    b = [border_cum.get(k) for k in keys]
+    if not (_measured(o) or _measured(b)):
+        return
+    m = dict(log_map())
+    old = m.get(key)
+    if old and _measured(old.get("o")) >= _measured(o) and _measured(old.get("b")) >= _measured(b):
+        return
+    m[key] = {"k": list(keys), "l": list(labels), "o": o, "b": b}
+    saved = _gas({"cell": GAS_CELL_LOG, "value": json.dumps(m, ensure_ascii=False,
+                                                            separators=(",", ":"))})
+    if saved and saved.get("status") == "ok":
+        with _log_lock:
+            _log["map"], _log["at"] = m, time.time()
+
+
+def ylog_get(raid):
+    """保存済みの予選を yosen_series と同じ形に戻す"""
+    lg = log_map().get(f"{raid}|yosen")
+    if not lg or not lg.get("k"):
+        return None
+    ks = lg["k"]
+    lbs = lg.get("l") or ks
+    oc = {k: v for k, v in zip(ks, lg.get("o") or []) if v is not None}
+    bc = {k: v for k, v in zip(ks, lg.get("b") or []) if v is not None}
+    if not (oc or bc):
+        return None
+
+    def spd(cum):                      # 時速は累積の差。先頭は開始(=0)からの増分
+        out, prev = {}, 0.0
+        for k in ks:
+            if k in cum:
+                out[k] = round(cum[k] - prev, 1)
+                prev = cum[k]
+        return out
+    # 順位は保存対象外(データ量が数倍になるため)。表の順位列は空欄になる
+    return {"keys": ks, "labels": lbs,
+            "ours": {"cum": oc, "speed": spd(oc), "rank": {}},
+            "border": {"cum": bc, "speed": spd(bc)}}
 
 
 def api_opponent(data):

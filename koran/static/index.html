@@ -72,6 +72,10 @@
   .subcap { font-size:12.5px; font-weight:600; color:var(--mut); margin:0 0 7px; }
   .keys { display:flex; flex-wrap:wrap; gap:3px 14px; margin:0 0 7px; padding:0; list-style:none; }
   .keys li { display:flex; align-items:center; gap:6px; font-size:11.5px; color:var(--mut); }
+  /* 表示を切り替える凡例。チップ自体をチェックボックスにする */
+  .keys label { display:flex; align-items:center; gap:6px; cursor:pointer; }
+  .keys input { width:13px; height:13px; margin:0; accent-color:#1c2733; }
+  .keys li.off { opacity:.45; }
   .kl { width:16px; height:3px; border-radius:2px; flex:none; }
   .kl.dash { height:0; border-top:2px dashed currentColor; border-radius:0; }
   h2 { font-size:14px; color:var(--mut); font-weight:600; margin-bottom:8px; }
@@ -104,6 +108,9 @@
 <script>
 const $=s=>document.querySelector(s);
 const charts={};
+// 凡例で消した系列。描き直しのたびにグラフを作り直すので、状態はここに残す。
+// キーは「グラフid|系列名」。同じ名前が別のグラフにあっても混ざらないようにするため
+const HIDE=new Set();
 let D=null, PICK=null, DAY=null;
 
 const f1=v=>v==null?'—':v.toLocaleString('ja-JP',{minimumFractionDigits:1,maximumFractionDigits:1});
@@ -137,25 +144,39 @@ const endLabelPlugin={id:'endLabel',afterDatasetsDraw(chart){
     ctx.fillText(p.text,p.x-8,p.y-9); ctx.restore();
   });
 }};
-function drawKeys(canvas,datasets){
+function drawKeys(canvas,datasets,id,toggle){
   const box=canvas.closest('.chartbox'); if(!box) return;
   let ul=box.previousElementSibling;
   if(!ul||!ul.classList.contains('keys')){
     ul=document.createElement('ul'); ul.className='keys';
     box.parentNode.insertBefore(ul,box);
   }
-  ul.innerHTML=datasets.map(ds=>{
+  ul.innerHTML=datasets.map((ds,i)=>{
     const c=ds.keyColor||ds.borderColor||'#888';
-    return ds.borderDash
-      ? `<li style="color:${c}"><span class="kl dash"></span><span style="color:var(--mut)">${ds.label}</span></li>`
-      : `<li><span class="kl" style="background:${c}"></span>${ds.label}</li>`;
+    const mark=ds.borderDash?`<span class="kl dash" style="color:${c}"></span>`
+                            :`<span class="kl" style="background:${c}"></span>`;
+    const nm=ds.borderDash?`<span style="color:var(--mut)">${ds.label}</span>`:ds.label;
+    return toggle
+      ? `<li class="${ds.hidden?'off':''}"><label><input type="checkbox" data-i="${i}" ${ds.hidden?'':'checked'}>${mark}${nm}</label></li>`
+      : `<li>${mark}${nm}</li>`;
   }).join('');
+  if(!toggle) return;
+  ul.onchange=e=>{
+    const i=+e.target.dataset.i, on=e.target.checked;
+    const k=id+'|'+datasets[i].label;
+    on?HIDE.delete(k):HIDE.add(k);
+    e.target.closest('li').classList.toggle('off',!on);
+    charts[id].setDatasetVisibility(i,on); charts[id].update();
+  };
 }
-function mkChart(id,labels,datasets){
+function mkChart(id,labels,datasets,opts={}){
   if(charts[id]) charts[id].destroy();
   const el=$(id);
-  datasets.forEach(ds=>{ if(ds.area){ ds.keyColor=ds.borderColor; ds.backgroundColor=areaGrad(ds.borderColor); ds.fill=true; } });
-  drawKeys(el,datasets);
+  datasets.forEach(ds=>{
+    if(ds.area){ ds.keyColor=ds.borderColor; ds.backgroundColor=areaGrad(ds.borderColor); ds.fill=true; }
+    if(opts.toggle && HIDE.has(id+'|'+ds.label)) ds.hidden=true;   // 前回消したままにする
+  });
+  drawKeys(el,datasets,id,opts.toggle);
   charts[id]=new Chart(el,{type:'line',data:{labels,datasets},plugins:[endLabelPlugin],options:{
     responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
     layout:{padding:{top:10,right:padR()}},
@@ -334,7 +355,8 @@ function render(){
       area:x.uid===PICK?1:0,endLabel:x.uid===PICK,tension:.35,pointRadius:0,
       borderWidth:x.uid===PICK?2.4:1.4,spanGaps:true})),
     ...D.lines.map(l=>({label:l.label,data:D.keys.map(k=>l.cum[k]??null),borderColor:l.color,
-      borderDash:[4,3],tension:.35,pointRadius:0,borderWidth:1.4,spanGaps:true}))]);
+      borderDash:[4,3],tension:.35,pointRadius:0,borderWidth:1.4,spanGaps:true}))],
+    {toggle:true});
 
   const dl=ds.labels;
   mkChart('#dCum',dl,[

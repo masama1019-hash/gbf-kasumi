@@ -129,7 +129,7 @@ const charts={};
 // 凡例で消した系列。描き直しのたびにグラフを作り直すので、状態はここに残す。
 // キーは「グラフid|系列名」。同じ名前が別のグラフにあっても混ざらないようにするため
 const HIDE=new Set();
-let D=null, PICK=null, DAY=null;
+let D=null, PICK=null, DAY='all';
 // 見る人の一覧はこの端末に覚える。サーバは書いたファイルが消えるので保存先にできない。
 // 未設定なら初期メンバー(環境変数KORAN_UIDS)がそのまま出る
 const LSKEY='koranUids';
@@ -223,9 +223,10 @@ const cur=m=>{ const k=lastOf(m.cum); return k?{key:k,cum:m.cum[k],rank:m.rank?m
 const line=r=>D.lines.find(l=>l.rank===r);
 const projM=m=>D.proj.members[String(m.uid)];
 const projL=r=>D.proj.lines[String(r)];
-// その日の時刻毎を切り出す。時速は1つ前のスナップショットとの差(日をまたぐ境目も素直に出る)
+// 対象日の時刻毎を切り出す。day==='all' なら全期間。
+// 時速は1つ前のスナップショットとの差(全期間で見ても日をまたぐ境目が素直に出る)
 function daySeries(cum,day){
-  const ks=D.keys.filter(k=>k.startsWith(day));
+  const ks=(day==='all')?D.keys.slice():D.keys.filter(k=>k.startsWith(day));
   const sp=ks.map(k=>{
     const i=D.keys.indexOf(k); const p=i>0?D.keys[i-1]:null;
     return (cum[k]!=null && p && cum[p]!=null) ? Math.round((cum[k]-cum[p])*10)/10 : null;
@@ -367,8 +368,11 @@ function render(){
       <td>${f1(projM(x))}</td>
       <td style="color:var(--mut)">${D.prev?f1(D.prev.members[String(x.uid)]):'—'}</td></tr>`).join('');
 
-  const dsel=D.days.map(d=>`<option value="${d.day}" ${d.day===DAY?'selected':''}>${d.label}</option>`).join('');
-  const ds=daySeries(m.cum,DAY), dr=D.days.find(d=>d.day===DAY);
+  const dsel=`<option value="all" ${DAY==='all'?'selected':''}>全日</option>`
+    +D.days.map(d=>`<option value="${d.day}" ${d.day===DAY?'selected':''}>${d.label}</option>`).join('');
+  const ds=daySeries(m.cum,DAY);
+  const dayName=DAY==='all'?'全日':(D.days.find(d=>d.day===DAY)||{}).label||'';
+  const AK=ds.keys, AL=ds.labels;              // 累積グラフも同じ範囲で描く
 
   $('#body').innerHTML=`
     <div class="hero">
@@ -402,12 +406,13 @@ function render(){
       <div style="font-size:11.5px;color:var(--mut);margin-top:8px">着地予想＝いまの値 ×（前回の最終 ÷ 前回の同じ時点）。前回に記録が無い人は「—」になります</div>
     </div>
 
-    <div class="card"><h2>累積貢献度の推移（億）— 実線=メンバー / 破線=ボーダー</h2>
+    <div class="card">
+      <div class="row" style="margin-bottom:10px"><h2 style="margin:0">累積貢献度の推移（億）— 実線=メンバー / 破線=ボーダー</h2>
+        <select id="daySel" onchange="DAY=this.value;render()" style="margin-left:auto">${dsel}</select></div>
       <div class="chartbox"><canvas id="allCum"></canvas></div></div>
 
     <div class="card">
-      <div class="row" style="margin-bottom:10px"><h2 style="margin:0">対象日の時刻毎 — ${m.name}</h2>
-        <select id="daySel" onchange="DAY=this.value;render()" style="margin-left:auto">${dsel}</select></div>
+      <h2>${dayName}の時刻毎 — ${m.name}</h2>
       <div class="subcap">累積（億）</div>
       <div class="chartbox"><canvas id="dCum"></canvas></div>
       <div style="height:16px"></div>
@@ -422,8 +427,8 @@ function render(){
             <td>${f1(ds.spd[i])}</td><td>${f1(b2)}</td><td>${f1(L1.cum[k]??null)}</td><td>${f1(L15.cum[k]??null)}</td>
             <td class="${v!=null&&b2!=null?(v>=b2?'good':'bad'):''}">${v!=null&&b2!=null?sign(v-b2):'—'}</td></tr>`;
         }).join('')}</table></div>
-      ${!ds.keys.length?'<div style="color:var(--mut);font-size:13px">この日のデータはまだありません</div>'
-        :(ds.cum.every(v=>v==null)?`<div style="color:var(--mut);font-size:12.5px;margin-top:8px">この日は${m.name}さんの記録がgbfdataにありません（順位が深いと収録されないことがあります）。線はボーダーのみです</div>`:'')}
+      ${!ds.keys.length?`<div style="color:var(--mut);font-size:13px">${dayName}のデータはまだありません</div>`
+        :(ds.cum.every(v=>v==null)?`<div style="color:var(--mut);font-size:12.5px;margin-top:8px">${DAY==='all'?'この回は':'この日は'}${m.name}さんの記録がgbfdataにありません（順位が深いと収録されないことがあります）。線はボーダーのみです</div>`:'')}
     </div>
 
     <div class="card"><h2>日別の比較（億）— ${m.name}</h2><div class="tw"><table>
@@ -441,11 +446,11 @@ function render(){
       }).join('')}</table></div></div>`;
 
   // 全期間: メンバーは実線、ボーダーは破線。選んだ人だけ面を塗って主役を分かりやすくする
-  mkChart('#allCum',D.labels,[
-    ...D.members.map(x=>({label:x.name,data:D.keys.map(k=>x.cum[k]??null),borderColor:x.color,
+  mkChart('#allCum',AL,[
+    ...D.members.map(x=>({label:x.name,data:AK.map(k=>x.cum[k]??null),borderColor:x.color,
       area:x.uid===PICK?1:0,endLabel:x.uid===PICK,tension:.35,pointRadius:0,
       borderWidth:x.uid===PICK?2.4:1.4,spanGaps:true})),
-    ...D.lines.map(l=>({label:l.label,data:D.keys.map(k=>l.cum[k]??null),borderColor:l.color,
+    ...D.lines.map(l=>({label:l.label,data:AK.map(k=>l.cum[k]??null),borderColor:l.color,
       borderDash:[4,3],tension:.35,pointRadius:0,borderWidth:1.4,spanGaps:true}))],
     {toggle:true});
 
@@ -472,10 +477,7 @@ async function load(){
   $('#raidSel').innerHTML=d.raids.map(r=>`<option value="${r}" ${r===d.raid?'selected':''}>第${r}回</option>`).join('');
   if(!D.members.some(m=>m.uid===PICK)) PICK=D.members[0].uid;
   // 対象日は開催中なら今日。期間外や過去回は記録のある最終日
-  if(!D.days.some(x=>x.day===DAY)){
-    const t=D.days.find(x=>x.day===D.today);
-    DAY=t?t.day:(D.days.length?D.days[D.days.length-1].day:null);
-  }
+  if(DAY!=='all' && !D.days.some(x=>x.day===DAY)) DAY='all';
   renderWho(); render();
 }
 $('#raidSel').addEventListener('change',load);

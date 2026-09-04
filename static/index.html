@@ -1327,7 +1327,7 @@ async function loadKoranHour(q, sch, name, s2, s1){
   KH={q,name,s2,s1};
   const lbl=KORAN_LBL[sch.day_of]||sch.day;
   const hd=t=>`<div class="row" style="margin-bottom:10px"><h2 style="margin:0">${t}</h2>${khSelHtml(sch.day)}</div>`;
-  box.innerHTML=`<div class="card">${hd(lbl+' の時刻毎（億・1H）')}<div class="load">取得中…(順位が深いと1分ほどかかります)</div></div>`;
+  box.innerHTML=`<div class="card">${hd(lbl+' の時刻毎（億/1H）')}<div class="load">取得中…(順位が深いと1分ほどかかります)</div></div>`;
   let d;
   try{ d=await (await fetch('/api/koran?q='+encodeURIComponent(q)+'&raid='+$('#raidSel').value+'&day='+sch.day)).json(); }
   catch(e){ if(document.body.contains(box)) box.innerHTML='<div class="card" style="font-size:12px;color:var(--mut)">時刻毎データの取得に失敗しました</div>'; return; }
@@ -1335,7 +1335,7 @@ async function loadKoranHour(q, sch, name, s2, s1){
   // 枠ごと消えているので何もしない(消えたcanvasにmkChartが描こうとして落ちる)
   if(!document.body.contains(box)) return;
   if(d.error||!d.times||!d.times.length){
-    box.innerHTML=`<div class="card">${hd(lbl+' の時刻毎（億・1H）')}
+    box.innerHTML=`<div class="card">${hd(lbl+' の時刻毎（億/1H）')}
       <div style="font-size:12px;color:var(--mut)">${d.error||'この日の時刻毎データはgbfdataに未収録です'}</div></div>`; return;
   }
   const T=d.times, Lx=d.labels;
@@ -1348,8 +1348,8 @@ async function loadKoranHour(q, sch, name, s2, s1){
       +(s2?`<td>${f1(b2[t])}</td><td class="sp${mxCls(b2s[t],m2)}">${f1(b2s[t])}</td>${dcell(dd2)}`:'')
       +(s1?`<td>${f1(b1[t])}</td><td class="sp${mxCls(b1s[t],m1)}">${f1(b1s[t])}</td>${dcell(dd1)}`:'')+`</tr>`;}).join('');
   box.innerHTML=`
-    <div class="card">${hd(d.label+' 累積の推移（億・1H）')}<div class="chartbox"><canvas id="kCumH"></canvas></div></div>
-    <div class="card"><h2>${d.label} 時速（億・1H）</h2><div class="chartbox"><canvas id="kSpdH"></canvas></div></div>
+    <div class="card">${hd(d.label+' 累積の推移（億/1H）')}<div class="chartbox"><canvas id="kCumH"></canvas></div></div>
+    <div class="card"><h2>${d.label} 時速（億/1H）</h2><div class="chartbox"><canvas id="kSpdH"></canvas></div></div>
     <div class="card"><h2>${d.label}（億単位）</h2><div class="tw"><table><tr><th>時刻</th><th>${name}</th><th>順位</th><th>時速</th>${s2?'<th>2000位</th><th>時速</th><th>差</th>':''}${s1?'<th>10万位</th><th>時速</th><th>差</th>':''}</tr>${trows}</table></div></div>`;
   mkChart('#kCumH','line',Lx,[
     {label:name,data:T.map(t=>pc[t]??null),borderColor:'#378ADD',area:'3d',endLabel:true,tension:0.35,borderWidth:2,pointRadius:0,spanGaps:true},

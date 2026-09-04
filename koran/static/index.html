@@ -82,6 +82,8 @@
   .tw table { width:auto; min-width:100%; }
   .tw th, .tw td { white-space:nowrap; }
   th:first-child,td:first-child { text-align:left; }
+  /* 到達状況は1列目が順位番号なので、名前の2列目も左寄せにする(この表だけ) */
+  table.rank th:nth-child(2), table.rank td:nth-child(2) { text-align:left; }
   .good { color:var(--green); font-weight:600; } .bad { color:var(--tx); font-weight:600; }
   .nm { display:flex; align-items:center; gap:6px; }
   .nm i { width:9px; height:9px; border-radius:50%; display:block; flex:none; }
@@ -241,14 +243,17 @@ function render(){
       +`${done.length?`${line(done[done.length-1][0]).label}は確保できています。`:''}`;
   })();
 
-  const rows=D.members.map(x=>{
-    const cc=cur(x);
-    return `<tr><td><span class="nm"><i style="background:${x.color}"></i>${x.name}</span></td>
+  // 貢献度の多い順に並べて順位を振る。記録が無い人は末尾へ
+  const ranked=D.members.map(x=>({m:x,c:cur(x)}))
+    .sort((a,b)=>(b.c.cum??-1)-(a.c.cum??-1));
+  const rows=ranked.map(({m:x,c:cc},i)=>
+    `<tr${x.uid===PICK?' style="background:#f1f7fe"':''}>
+      <td style="color:var(--mut);font-variant-numeric:tabular-nums">${i+1}</td>
+      <td><span class="nm"><i style="background:${x.color}"></i>${x.name}</span></td>
       <td>${f1(cc.cum)}</td><td style="color:var(--mut)">${cc.rank?cc.rank.toLocaleString():'—'}位</td>
       ${statusCell(cc.cum,c2)}${statusCell(cc.cum,c1)}${statusCell(cc.cum,c15)}
       <td>${f1(projM(x))}</td>
-      <td style="color:var(--mut)">${D.prev?f1(D.prev.members[String(x.uid)]):'—'}</td></tr>`;
-  }).join('');
+      <td style="color:var(--mut)">${D.prev?f1(D.prev.members[String(x.uid)]):'—'}</td></tr>`).join('');
 
   const dsel=D.days.map(d=>`<option value="${d.day}" ${d.day===DAY?'selected':''}>${d.label}</option>`).join('');
   const ds=daySeries(m.cum,DAY), dr=D.days.find(d=>d.day===DAY);
@@ -279,8 +284,8 @@ function render(){
       }).join('')}
     </div>
 
-    <div class="card"><h2>全員の到達状況</h2><div class="tw"><table>
-      <tr><th>名前</th><th>累積</th><th>順位</th><th>英雄(2000位)</th><th>10万位</th><th>15万位</th><th>着地予想</th><th>前回最終</th></tr>
+    <div class="card"><h2>全員の到達状況</h2><div class="tw"><table class="rank">
+      <tr><th></th><th>名前</th><th>累積</th><th>全体順位</th><th>英雄(2000位)</th><th>10万位</th><th>15万位</th><th>着地予想</th><th>前回最終</th></tr>
       ${rows}</table></div>
       <div style="font-size:11.5px;color:var(--mut);margin-top:8px">着地予想＝いまの値 ×（前回の最終 ÷ 前回の同じ時点）。前回に記録が無い人は「—」になります</div>
     </div>

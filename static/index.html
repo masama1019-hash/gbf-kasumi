@@ -1205,8 +1205,21 @@ async function loadKoranAll(){
   mkChart('#kAll','bar', d.rows.map(r=>r.name),
     d.days.map((x,i)=>({label:x.label, backgroundColor:RAMP[i%RAMP.length], borderWidth:0,
       data:d.rows.map(r=>r.days[x.day_of]??0)})),
-    {indexAxis:'y', refLines:[{v:b2,color:'#C0431C',label:'英雄(2000位)'},
-                              {v:b1,color:'#14805C',label:'10万位'}],
+    {indexAxis:'y',
+     // ⚠️ 横棒では axis:'y' が要る。既定のxのままだと横方向の距離で近い要素を探すため、
+     //    行を指しているのに別の行が選ばれるなど選択が乱れる
+     interaction:{mode:'index',intersect:false,axis:'y'},
+     refLines:[{v:b2,color:'#C0431C',label:'英雄(2000位)'},
+               {v:b1,color:'#14805C',label:'10万位'}],
+     plugins:{legend:{display:false},
+       tooltip:{backgroundColor:'rgba(24,33,44,.94)',titleColor:'#fff',bodyColor:'#e7edf4',
+         borderColor:'rgba(255,255,255,.14)',borderWidth:1,padding:10,cornerRadius:7,
+         boxWidth:8,boxHeight:8,usePointStyle:true,
+         titleFont:{size:12,weight:'700'},bodyFont:{size:12},footerFont:{size:12,weight:'700'},
+         // 0の日は並べても読みにくいだけなので伏せる。合計は積み上げの総和＝累積
+         filter:it=>it.parsed.x>0,
+         callbacks:{label:it=>' '+it.dataset.label+'  '+f1(it.parsed.x),
+           footer:its=>'累積  '+f1(its.reduce((a,it)=>a+it.parsed.x,0))}}},
      scales:{x:{stacked:true,grid:{color:'rgba(28,39,51,.05)',drawTicks:false},border:{display:false},
                 ticks:{color:'#68707a',font:{size:10},maxTicksLimit:5}},
              y:{stacked:true,grid:{display:false},border:{color:'rgba(28,39,51,.10)'},

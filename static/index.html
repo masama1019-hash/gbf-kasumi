@@ -1280,10 +1280,27 @@ async function koranTick(){
 }
 // 開いた日の時刻毎。概要より重い(順位が深い人は数十秒)ので、
 // 概要を先に出してから非同期で追記する(サーチの時速と同じ方式)
+// 時刻毎の対象日を切り替えるためのプルダウン。既定は開催中なら当日、終了後は最終日だが、
+// 予選〜本戦4日目のどれでも選べるようにする(引数を覚えておいて選び直しで取り直す)
+let KH={q:null,name:null,s2:true,s1:true};
+function khDays(){
+  return (cfg.schedules||[]).slice().sort((a,b)=>a.day_of-b.day_of);
+}
+function khSelHtml(day){
+  return `<select id="khSel" onchange="khPick(this.value)" style="margin-left:auto">`
+    +khDays().map(s=>`<option value="${s.day}" ${s.day===day?'selected':''}>${KORAN_LBL[s.day_of]||s.day}</option>`).join('')
+    +`</select>`;
+}
+function khPick(day){
+  const sch=khDays().find(s=>s.day===day);
+  if(sch) loadKoranHour(KH.q, sch, KH.name, KH.s2, KH.s1);
+}
 async function loadKoranHour(q, sch, name, s2, s1){
   const box=$('#koranHourBox'); if(!box||!sch) return;
+  KH={q,name,s2,s1};
   const lbl=KORAN_LBL[sch.day_of]||sch.day;
-  box.innerHTML=`<div class="card"><h2>${lbl} の時刻毎（億・1H）</h2><div class="load">取得中…(順位が深いと1分ほどかかります)</div></div>`;
+  const hd=t=>`<div class="row" style="margin-bottom:10px"><h2 style="margin:0">${t}</h2>${khSelHtml(sch.day)}</div>`;
+  box.innerHTML=`<div class="card">${hd(lbl+' の時刻毎（億・1H）')}<div class="load">取得中…(順位が深いと1分ほどかかります)</div></div>`;
   let d;
   try{ d=await (await fetch('/api/koran?q='+encodeURIComponent(q)+'&raid='+$('#raidSel').value+'&day='+sch.day)).json(); }
   catch(e){ if(document.body.contains(box)) box.innerHTML='<div class="card" style="font-size:12px;color:var(--mut)">時刻毎データの取得に失敗しました</div>'; return; }
@@ -1291,7 +1308,8 @@ async function loadKoranHour(q, sch, name, s2, s1){
   // 枠ごと消えているので何もしない(消えたcanvasにmkChartが描こうとして落ちる)
   if(!document.body.contains(box)) return;
   if(d.error||!d.times||!d.times.length){
-    box.innerHTML=`<div class="card" style="font-size:12px;color:var(--mut)">${d.error||'この日の時刻毎データはgbfdataに未収録です'}</div>`; return;
+    box.innerHTML=`<div class="card">${hd(lbl+' の時刻毎（億・1H）')}
+      <div style="font-size:12px;color:var(--mut)">${d.error||'この日の時刻毎データはgbfdataに未収録です'}</div></div>`; return;
   }
   const T=d.times, Lx=d.labels;
   const pc=d.player.cum, prk=d.player.rank, psp=d.player.speed;
@@ -1303,7 +1321,7 @@ async function loadKoranHour(q, sch, name, s2, s1){
       +(s2?`<td>${f1(b2[t])}</td><td class="sp${mxCls(b2s[t],m2)}">${f1(b2s[t])}</td>${dcell(dd2)}`:'')
       +(s1?`<td>${f1(b1[t])}</td><td class="sp${mxCls(b1s[t],m1)}">${f1(b1s[t])}</td>${dcell(dd1)}`:'')+`</tr>`;}).join('');
   box.innerHTML=`
-    <div class="card"><h2>${d.label} 累積の推移（億・1H）</h2><div class="chartbox"><canvas id="kCumH"></canvas></div></div>
+    <div class="card">${hd(d.label+' 累積の推移（億・1H）')}<div class="chartbox"><canvas id="kCumH"></canvas></div></div>
     <div class="card"><h2>${d.label} 時速（億・1H）</h2><div class="chartbox"><canvas id="kSpdH"></canvas></div></div>
     <div class="card"><h2>${d.label}（億単位）</h2><div class="tw"><table><tr><th>時刻</th><th>${name}</th><th>順位</th><th>時速</th>${s2?'<th>2000位</th><th>時速</th><th>差</th>':''}${s1?'<th>10万位</th><th>時速</th><th>差</th>':''}</tr>${trows}</table></div></div>`;
   mkChart('#kCumH','line',Lx,[

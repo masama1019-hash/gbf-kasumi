@@ -6,3 +6,18 @@ services:
     buildCommand: "pip install -r requirements.txt"
     startCommand: "python server.py"
     autoDeploy: true
+  # 個人ランキング追跡(すなっさん向け)。同じリポジトリの koran/ を使う別サービス。
+  # ⚠️ 無料枠はワークスペースで月750インスタンス時間。既存のkeepaliveが620時間使うので
+  #    こちらにkeepaliveは付けない(15分無アクセスで休止し、初回だけ約50秒かかる)
+  - type: web
+    name: gbf-koran
+    runtime: python
+    plan: free
+    rootDir: koran
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "python server.py"
+    autoDeploy: true
+    envVars:
+      # 個人IDはコードに書かずここで渡す。値はRenderの画面で設定する
+      - key: KORAN_UIDS
+        sync: false

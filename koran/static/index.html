@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>個人ランキング（英雄・勲章）</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<style>
+  :root { --blue:#378ADD; --red:#D85A30; --green:#1D9E75; --bg:#f6f7f9; --card:#fff; --tx:#1c2733; --mut:#68707a; }
+  * { box-sizing:border-box; margin:0; }
+  body { font-family:-apple-system,"Hiragino Sans",sans-serif; background:var(--bg); color:var(--tx); }
+  header { background:#1c2733; color:#fff; padding:14px 18px; display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
+  header h1 { font-size:17px; font-weight:600; }
+  header select { margin-left:auto; }
+  main { max-width:860px; margin:0 auto; padding:16px; }
+  .card { background:var(--card); border-radius:12px; padding:16px; margin-bottom:14px; box-shadow:0 1px 3px rgba(0,0,0,.06); }
+  .row { display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+  select,input,button { font-size:14px; padding:8px 10px; border:1px solid #d5dae0; border-radius:8px; background:#fff; }
+  button.primary { background:var(--blue); color:#fff; border:none; cursor:pointer; }
+  .chks { display:flex; gap:14px; align-items:center; }
+  .chks label { font-size:12px; color:var(--mut); white-space:nowrap; display:flex; align-items:center; gap:4px; }
+  /* ---- 人の切り替えチップ。色は線の色と揃えて、グラフと見比べられるようにする ---- */
+  .who { display:flex; gap:7px; flex-wrap:wrap; margin-bottom:12px; }
+  .who button { display:flex; align-items:center; gap:6px; font-size:13px; color:var(--tx);
+                padding:7px 13px; cursor:pointer; background:var(--card); }
+  .who button i { width:9px; height:9px; border-radius:50%; display:block; flex:none; }
+  .who button.on { border-color:#1c2733; box-shadow:inset 0 0 0 1px #1c2733; font-weight:600; }
+  .who button .lv { font-size:10.5px; color:var(--mut); }
+  /* ---- 判断バンドと数値ストリップ(本体アプリと同じ構成) ---- */
+  .hero { background:var(--card); border:1px solid #e3e8ee; border-radius:12px;
+          box-shadow:0 1px 3px rgba(28,39,51,.07); overflow:hidden; }
+  .heroTop { display:grid; grid-template-columns:auto 1fr auto; gap:22px; align-items:center; padding:22px 24px; }
+  @media (max-width:620px){
+    .heroTop { grid-template-columns:1fr; gap:10px; }
+    /* 狭い画面では左右の余白がグラフ幅を大きく削るので詰める(上下は残す) */
+    main { padding:10px; }
+    .card { padding:14px 10px; }
+    table { font-size:12px; }
+    th,td { padding:6px 5px; }
+  }
+  .heroLead .k, .heroWin .k { font-size:11.5px; color:var(--mut); }
+  .heroLead .v { font-size:40px; font-weight:700; letter-spacing:-.02em; line-height:1.15; }
+  .heroWin { text-align:right; }
+  .heroWin .v { font-size:32px; font-weight:700; letter-spacing:-.02em; }
+  .heroMid { min-width:0; }
+  .heroMid .st { font-size:14px; font-weight:600; margin-bottom:9px; }
+  .heroMid .sub { font-size:11.5px; color:var(--mut); margin-top:9px; }
+  .heroAct { border-top:1px solid #e3e8ee; padding:15px 24px; display:flex; gap:13px;
+             align-items:flex-start; background:var(--bg); }
+  .heroAct .tx { font-size:13px; color:var(--tx); line-height:1.7; }
+  .badge { font-size:11.5px; font-weight:700; padding:3px 9px; border-radius:5px; white-space:nowrap; }
+  .bar { height:9px; border-radius:5px; background:rgba(127,139,153,.16); overflow:hidden; }
+  .bar i { display:block; height:100%; border-radius:5px; }
+  /* 「悪い」を赤にしない。ボーダーの赤と見分けが付かないため、記号と語と濃いインクで示す */
+  .up { color:var(--green); font-weight:700; }
+  .dn { color:var(--tx); font-weight:700; }
+  .up .mk, .dn .mk { font-size:.8em; margin-right:2px; }
+  .strip { display:grid; grid-template-columns:repeat(auto-fit,minmax(132px,1fr)); gap:1px;
+           background:#e3e8ee; border:1px solid #e3e8ee; border-radius:10px;
+           overflow:hidden; margin-top:10px; margin-bottom:14px; }
+  .strip > div { background:var(--card); padding:9px 12px; display:flex; flex-direction:column; }
+  .strip .k { font-size:11px; color:var(--mut); }
+  .strip .v { font-size:16px; font-weight:600; margin:auto 0; }
+  .strip .v .u { font-size:10.5px; color:var(--mut); font-weight:600; }
+  .chartbox { position:relative; height:240px; }
+  /* 1枚のカードに2つグラフを置くときの小見出し。凡例チップの上に出る */
+  .subcap { font-size:12.5px; font-weight:600; color:var(--mut); margin:0 0 7px; }
+  .keys { display:flex; flex-wrap:wrap; gap:3px 14px; margin:0 0 7px; padding:0; list-style:none; }
+  .keys li { display:flex; align-items:center; gap:6px; font-size:11.5px; color:var(--mut); }
+  .kl { width:16px; height:3px; border-radius:2px; flex:none; }
+  .kl.dash { height:0; border-top:2px dashed currentColor; border-radius:0; }
+  h2 { font-size:14px; color:var(--mut); font-weight:600; margin-bottom:8px; }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  th,td { padding:6px 8px; text-align:right; border-bottom:1px solid #eef0f2; }
+  /* 横スクロールさせる表。width:100%だと列が痩せて日本語が1文字ずつ折り返る */
+  .tw { overflow-x:auto; -webkit-overflow-scrolling:touch; }
+  .tw table { width:auto; min-width:100%; }
+  .tw th, .tw td { white-space:nowrap; }
+  th:first-child,td:first-child { text-align:left; }
+  .good { color:var(--green); font-weight:600; } .bad { color:var(--tx); font-weight:600; }
+  .nm { display:flex; align-items:center; gap:6px; }
+  .nm i { width:9px; height:9px; border-radius:50%; display:block; flex:none; }
+  .load { padding:40px; text-align:center; color:var(--mut); }
+</style>
+</head>
+<body>
+<header>
+  <h1>個人ランキング（英雄・勲章）</h1>
+  <select id="raidSel"></select>
+  <button class="primary" onclick="load()">更新</button>
+  <span class="chks"><label title="gbfdataは毎時更新なので、新しい時刻のデータが出たら自動で取り直します"><input type="checkbox" id="auto"> 自動更新</label></span>
+</header>
+<main>
+  <div id="who" class="who"></div>
+  <div id="body"><div class="load">読み込み中…</div></div>
+</main>
+<script>
+const $=s=>document.querySelector(s);
+const charts={};
+let D=null, PICK=null, DAY=null;
+
+const f1=v=>v==null?'—':v.toLocaleString('ja-JP',{minimumFractionDigits:1,maximumFractionDigits:1});
+const sign=v=>v==null?'—':(v>=0?'+':'')+f1(v);
+
+// ---- グラフ ----
+// 終端の札は点の「左」に描くので、右余白は点(半径3.5)が枠に接しない分だけでよい
+const padR=()=>window.innerWidth<620?10:16;
+const areaGrad=hex=>ctx=>{
+  const a=ctx.chart.chartArea; if(!a) return 'transparent';
+  const g=ctx.chart.ctx.createLinearGradient(0,a.top,0,a.bottom);
+  g.addColorStop(0,hex+'3d'); g.addColorStop(1,hex+'05'); return g;
+};
+// 線の終端に系列名と最終値を置く。近づいた札は下へ押し分ける
+const endLabelPlugin={id:'endLabel',afterDatasetsDraw(chart){
+  const ctx=chart.ctx, picks=[];
+  chart.data.datasets.forEach((ds,i)=>{
+    if(!ds.endLabel) return;
+    const m=chart.getDatasetMeta(i); if(m.hidden||!m.data.length) return;
+    let j=ds.data.length-1; while(j>=0 && ds.data[j]==null) j--;
+    if(j<0||!m.data[j]) return;
+    picks.push({x:m.data[j].x,y:m.data[j].y,color:ds.borderColor,text:ds.label+' '+f1(ds.data[j])});
+  });
+  picks.sort((a,b)=>a.y-b.y);
+  for(let i=1;i<picks.length;i++) if(picks[i].y-picks[i-1].y<15) picks[i].y=picks[i-1].y+15;
+  picks.forEach(p=>{
+    ctx.save(); ctx.fillStyle=p.color;
+    ctx.beginPath(); ctx.arc(p.x,p.y,3.5,0,Math.PI*2); ctx.fill();
+    ctx.font="600 11px -apple-system,'Hiragino Sans',sans-serif";
+    ctx.textAlign='right'; ctx.textBaseline='middle';
+    ctx.fillText(p.text,p.x-8,p.y-9); ctx.restore();
+  });
+}};
+function drawKeys(canvas,datasets){
+  const box=canvas.closest('.chartbox'); if(!box) return;
+  let ul=box.previousElementSibling;
+  if(!ul||!ul.classList.contains('keys')){
+    ul=document.createElement('ul'); ul.className='keys';
+    box.parentNode.insertBefore(ul,box);
+  }
+  ul.innerHTML=datasets.map(ds=>{
+    const c=ds.keyColor||ds.borderColor||'#888';
+    return ds.borderDash
+      ? `<li style="color:${c}"><span class="kl dash"></span><span style="color:var(--mut)">${ds.label}</span></li>`
+      : `<li><span class="kl" style="background:${c}"></span>${ds.label}</li>`;
+  }).join('');
+}
+function mkChart(id,labels,datasets){
+  if(charts[id]) charts[id].destroy();
+  const el=$(id);
+  datasets.forEach(ds=>{ if(ds.area){ ds.keyColor=ds.borderColor; ds.backgroundColor=areaGrad(ds.borderColor); ds.fill=true; } });
+  drawKeys(el,datasets);
+  charts[id]=new Chart(el,{type:'line',data:{labels,datasets},plugins:[endLabelPlugin],options:{
+    responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
+    layout:{padding:{top:10,right:padR()}},
+    onResize(ch){ ch.options.layout.padding.right=padR(); },
+    plugins:{legend:{display:false},
+      tooltip:{backgroundColor:'rgba(24,33,44,.94)',titleColor:'#fff',bodyColor:'#e7edf4',
+        borderColor:'rgba(255,255,255,.14)',borderWidth:1,padding:10,cornerRadius:7,
+        boxWidth:8,boxHeight:8,usePointStyle:true,
+        titleFont:{size:11.5,weight:'600'},bodyFont:{size:12}}},
+    scales:{
+      x:{grid:{display:false},border:{color:'rgba(28,39,51,.10)'},
+         ticks:{color:'#68707a',font:{size:10},maxRotation:0,autoSkipPadding:16}},
+      y:{grid:{color:'rgba(28,39,51,.038)',drawTicks:false},border:{display:false},
+         ticks:{color:'#68707a',font:{size:10},padding:7,maxTicksLimit:4}}}}});
+}
+
+// ---- データの取り出し ----
+const lastOf=cum=>{ for(let i=D.keys.length-1;i>=0;i--){ const k=D.keys[i]; if(cum[k]!=null) return k; } return null; };
+const cur=m=>{ const k=lastOf(m.cum); return k?{key:k,cum:m.cum[k],rank:m.rank?m.rank[k]:null}:{key:null,cum:null,rank:null}; };
+const line=r=>D.lines.find(l=>l.rank===r);
+const projM=m=>D.proj.members[String(m.uid)];
+const projL=r=>D.proj.lines[String(r)];
+// その日の時刻毎を切り出す。時速は1つ前のスナップショットとの差(日をまたぐ境目も素直に出る)
+function daySeries(cum,day){
+  const ks=D.keys.filter(k=>k.startsWith(day));
+  const sp=ks.map(k=>{
+    const i=D.keys.indexOf(k); const p=i>0?D.keys[i-1]:null;
+    return (cum[k]!=null && p && cum[p]!=null) ? Math.round((cum[k]-cum[p])*10)/10 : null;
+  });
+  return {keys:ks, labels:ks.map(k=>hourLabel(k)), cum:ks.map(k=>cum[k]??null), spd:sp};
+}
+const hourLabel=k=>{ const h=parseInt(k.split(' ')[1],10); return (h>24?h-24:h)+'時'; };
+
+// ---- 描画 ----
+function renderWho(){
+  $('#who').innerHTML=D.members.map(m=>{
+    const c=cur(m);
+    return `<button class="${m.uid===PICK?'on':''}" onclick="pick(${m.uid})">
+      <i style="background:${m.color}"></i>${m.name}
+      <span class="lv">${c.cum!=null?f1(c.cum)+'億':'—'}</span></button>`;
+  }).join('');
+}
+function pick(uid){ PICK=uid; renderWho(); render(); }
+
+// 3本のラインそれぞれに対する到達状況。到達済みは緑、未到達は「あと◯億」
+function statusCell(v,lv){
+  if(v==null||lv==null) return '<td>—</td>';
+  return v>=lv ? `<td class="good">到達 +${f1(v-lv)}</td>` : `<td class="bad">あと ${f1(lv-v)}</td>`;
+}
+function render(){
+  const m=D.members.find(x=>x.uid===PICK)||D.members[0];
+  if(!D.keys.length){
+    $('#body').innerHTML=`<div class="card">第${D.raid}回のデータはまだありません。`
+      +`gbfdataは開催が始まって最初のスナップショット（予選1日目の20時）から記録されます</div>`;
+    return;
+  }
+  const c=cur(m);
+  const L2=line(2000), L1=line(100000), L15=line(150000);
+  const c2=cur(L2).cum, c1=cur(L1).cum, c15=cur(L15).cum;
+  const pm=projM(m);
+  // 基準は「まだ届いていない一番手前のライン」。全員に英雄(2000位)を当てると、
+  // 下位の人は差が数百億になって判断材料にならない。全部到達済みなら英雄で余裕を見る
+  const order=[[150000,c15],[100000,c1],[2000,c2]];
+  const hit=order.find(([,lv])=>lv!=null&&c.cum!=null&&c.cum<lv);
+  const tgt=line(hit?hit[0]:2000);
+  const tv=cur(tgt).cum, tp=projL(tgt.rank);
+  const diff=(c.cum!=null&&tv!=null)?c.cum-tv:null;
+  const mx=Math.max(c.cum??0,tv??0)||1;
+  const reached=diff!=null&&diff>=0;
+  // 判定は「いま届いているか」ではなく「このペースの着地で届くか」を主にする
+  const willReach=(pm!=null&&tp!=null)?pm>=tp:null;
+  const tone=c.cum==null?['#f0f2f5','#3d4854','—']
+        :(reached?['#e1f5ee','#0F6E56',tgt.label+' 到達']
+        :(willReach===true?['#e1f5ee','#0F6E56',tgt.label+' 射程内']
+        :['#f0f2f5','#3d4854',tgt.label+' 未到達']));
+  const note=(()=>{
+    if(c.cum==null) return `${m.name}さんはこの回のデータがありません`;
+    const at=c.key?hourLabel(c.key)+'時点':'';
+    if(reached) return `<b>${tgt.label}に到達しています</b>。${at}で ${f1(c.cum)}億（${c.rank?c.rank.toLocaleString()+'位':'順位不明'}）、ラインは ${f1(tv)}億で <b>+${f1(diff)}億</b> の余裕です。${(tp!=null&&tp>c.cum)?`ラインの着地予想は ${f1(tp)}億 なので、あと ${f1(tp-c.cum)}億 積めば着地でも安全圏です。`:''}`;
+    const need=(tp!=null&&pm!=null)?tp-pm:null;
+    const tail=need==null?'':(need>0?`<b>${f1(need)}億 足りません</b>。`:`<b>このまま行けば届く見込みです</b>。`);
+    const done=order.filter(([r,lv])=>r!==tgt.rank&&lv!=null&&c.cum>=lv);
+    return `${tgt.label}まで <b>あと ${f1(-diff)}億</b>（${at}）。`
+      +`${tp!=null?`ラインの着地予想は ${f1(tp)}億、`:''}${pm!=null?`このペースだと着地は ${f1(pm)}億 で、`:''}${tail}`
+      +`${done.length?`${line(done[done.length-1][0]).label}は確保できています。`:''}`;
+  })();
+
+  const rows=D.members.map(x=>{
+    const cc=cur(x);
+    return `<tr><td><span class="nm"><i style="background:${x.color}"></i>${x.name}</span></td>
+      <td>${f1(cc.cum)}</td><td style="color:var(--mut)">${cc.rank?cc.rank.toLocaleString():'—'}位</td>
+      ${statusCell(cc.cum,c2)}${statusCell(cc.cum,c1)}${statusCell(cc.cum,c15)}
+      <td>${f1(projM(x))}</td>
+      <td style="color:var(--mut)">${D.prev?f1(D.prev.members[String(x.uid)]):'—'}</td></tr>`;
+  }).join('');
+
+  const dsel=D.days.map(d=>`<option value="${d.day}" ${d.day===DAY?'selected':''}>${d.label}</option>`).join('');
+  const ds=daySeries(m.cum,DAY), dr=D.days.find(d=>d.day===DAY);
+
+  $('#body').innerHTML=`
+    <div class="hero">
+      <div class="heroTop">
+        <div class="heroLead"><div class="k">${tgt.label}との差</div>
+          <div class="v">${diff==null?'—':(diff>=0?`<span class="up"><span class="mk">▲</span>+${f1(diff)}<span style="font-size:14px;color:var(--mut)">億</span></span>`:`<span class="dn"><span class="mk">▼</span>${f1(diff)}<span style="font-size:14px;color:var(--mut)">億</span></span>`)}</div></div>
+        <div class="heroMid">
+          <div class="st">${m.name}${m.level?`（Lv${m.level}）`:''}</div>
+          <div class="bar"><i style="width:${(c.cum??0)/mx*100}%;background:${m.color}"></i></div>
+          <div class="bar" style="margin-top:6px"><i style="width:${(tv??0)/mx*100}%;background:${tgt.color}"></i></div>
+          <div class="sub">${m.name} ${f1(c.cum)}億${c.rank?`（${c.rank.toLocaleString()}位）`:''} ／ ${tgt.label} ${f1(tv)}億　<span style="opacity:.8">${c.key?hourLabel(c.key)+'時点':''}</span></div>
+        </div>
+        ${pm!=null?`<div class="heroWin"><div class="k">${m.name} 着地予想</div><div class="v">${f1(pm)}<span style="font-size:14px;color:var(--mut)">億</span></div>
+          ${tp!=null?`<div class="k">${tgt.label} ${f1(tp)}億</div>`:''}</div>`:''}
+      </div>
+      <div class="heroAct"><span class="badge" style="background:${tone[0]};color:${tone[1]}">${tone[2]}</span><span class="tx">${note}</span></div>
+    </div>
+    <div class="strip">
+      <div><div class="k">${m.name} 累積</div><div class="v">${f1(c.cum)}<span class="u">億</span></div><div class="k">${c.rank?c.rank.toLocaleString()+'位':''}</div></div>
+      ${[[2000,c2],[100000,c1],[150000,c15]].map(([r,lv])=>{
+        const lp=projL(r);
+        const sub=(c.cum!=null&&lv!=null)?(c.cum>=lv?`到達 +${f1(c.cum-lv)}億`:`あと ${f1(lv-c.cum)}億`)
+                  :(lp!=null?`着地予想 ${f1(lp)}億`:'');
+        return `<div><div class="k">${line(r).label}</div><div class="v">${f1(lv)}<span class="u">億</span></div><div class="k">${sub}</div></div>`;
+      }).join('')}
+    </div>
+
+    <div class="card"><h2>全員の到達状況</h2><div class="tw"><table>
+      <tr><th>名前</th><th>累積</th><th>順位</th><th>英雄(2000位)</th><th>10万位</th><th>15万位</th><th>着地予想</th><th>前回最終</th></tr>
+      ${rows}</table></div>
+      <div style="font-size:11.5px;color:var(--mut);margin-top:8px">着地予想＝いまの値 ×（前回の最終 ÷ 前回の同じ時点）。前回に記録が無い人は「—」になります</div>
+    </div>
+
+    <div class="card"><h2>累積貢献度の推移（億）— 実線=メンバー / 破線=ボーダー</h2>
+      <div class="chartbox"><canvas id="allCum"></canvas></div></div>
+
+    <div class="card">
+      <div class="row" style="margin-bottom:10px"><h2 style="margin:0">対象日の時刻毎 — ${m.name}</h2>
+        <select id="daySel" onchange="DAY=this.value;render()" style="margin-left:auto">${dsel}</select></div>
+      <div class="subcap">累積（億）</div>
+      <div class="chartbox"><canvas id="dCum"></canvas></div>
+      <div style="height:16px"></div>
+      <div class="subcap">時速（億/h）</div>
+      <div class="chartbox"><canvas id="dSpd"></canvas></div>
+      <div class="tw" style="margin-top:12px"><table>
+        <tr><th>時刻</th><th>${m.name}</th><th>順位</th><th>時速</th><th>英雄(2000位)</th><th>10万位</th><th>15万位</th><th>英雄との差</th></tr>
+        ${ds.keys.map((k,i)=>{
+          const v=ds.cum[i], b2=L2.cum[k]??null;
+          return `<tr><td>${ds.labels[i]}</td><td>${f1(v)}</td>
+            <td style="color:var(--mut)">${m.rank[k]?m.rank[k].toLocaleString()+'位':'—'}</td>
+            <td>${f1(ds.spd[i])}</td><td>${f1(b2)}</td><td>${f1(L1.cum[k]??null)}</td><td>${f1(L15.cum[k]??null)}</td>
+            <td class="${v!=null&&b2!=null?(v>=b2?'good':'bad'):''}">${v!=null&&b2!=null?sign(v-b2):'—'}</td></tr>`;
+        }).join('')}</table></div>
+      ${!ds.keys.length?'<div style="color:var(--mut);font-size:13px">この日のデータはまだありません</div>'
+        :(ds.cum.every(v=>v==null)?`<div style="color:var(--mut);font-size:12.5px;margin-top:8px">この日は${m.name}さんの記録がgbfdataにありません（順位が深いと収録されないことがあります）。線はボーダーのみです</div>`:'')}
+    </div>
+
+    <div class="card"><h2>日別の比較（億）— ${m.name}</h2><div class="tw"><table>
+      <tr><th>日程</th><th>累積</th><th>その日</th><th>順位</th><th>英雄(2000位)</th><th>差</th><th>10万位</th><th>15万位</th></tr>
+      ${D.days.map(dd=>{
+        const r=m.daily.find(x=>x.day_of===dd.day_of)||{};
+        const g2=(L2.daily.find(x=>x.day_of===dd.day_of)||{}).cum;
+        const g1=(L1.daily.find(x=>x.day_of===dd.day_of)||{}).cum;
+        const g15=(L15.daily.find(x=>x.day_of===dd.day_of)||{}).cum;
+        const df=(r.cum!=null&&g2!=null)?r.cum-g2:null;
+        return `<tr><td>${dd.label}</td><td>${f1(r.cum)}</td><td>${f1(r.gain)}</td>
+          <td style="color:var(--mut)">${r.rank?r.rank.toLocaleString()+'位':'—'}</td>
+          <td>${f1(g2)}</td><td class="${df!=null?(df>=0?'good':'bad'):''}">${sign(df)}</td>
+          <td>${f1(g1)}</td><td>${f1(g15)}</td></tr>`;
+      }).join('')}</table></div></div>`;
+
+  // 全期間: メンバーは実線、ボーダーは破線。選んだ人だけ面を塗って主役を分かりやすくする
+  mkChart('#allCum',D.labels,[
+    ...D.members.map(x=>({label:x.name,data:D.keys.map(k=>x.cum[k]??null),borderColor:x.color,
+      area:x.uid===PICK?1:0,endLabel:x.uid===PICK,tension:.35,pointRadius:0,
+      borderWidth:x.uid===PICK?2.4:1.4,spanGaps:true})),
+    ...D.lines.map(l=>({label:l.label,data:D.keys.map(k=>l.cum[k]??null),borderColor:l.color,
+      borderDash:[4,3],tension:.35,pointRadius:0,borderWidth:1.4,spanGaps:true}))]);
+
+  const dl=ds.labels;
+  mkChart('#dCum',dl,[
+    {label:m.name,data:ds.cum,borderColor:m.color,area:1,endLabel:true,tension:.35,pointRadius:0,borderWidth:2.4,spanGaps:true},
+    ...D.lines.map(l=>({label:l.label,data:ds.keys.map(k=>l.cum[k]??null),borderColor:l.color,
+      borderDash:[4,3],endLabel:true,tension:.35,pointRadius:0,borderWidth:1.6,spanGaps:true}))]);
+  mkChart('#dSpd',dl,[
+    {label:m.name,data:ds.spd,borderColor:m.color,tension:.35,pointRadius:0,borderWidth:2.4,spanGaps:true},
+    ...D.lines.map(l=>({label:l.label,data:daySeries(l.cum,DAY).spd,borderColor:l.color,
+      borderDash:[4,3],tension:.35,pointRadius:0,borderWidth:1.4,spanGaps:true}))]);
+}
+
+async function load(){
+  $('#body').innerHTML='<div class="load">読み込み中…</div>';
+  let d;
+  try{ d=await (await fetch('/api/board?raid='+($('#raidSel').value||''))).json(); }
+  catch(e){ $('#body').innerHTML='<div class="card">取得できませんでした。もう一度「更新」を押してください</div>'; return; }
+  if(d.error){ $('#body').innerHTML=`<div class="card">${d.error}</div>`; return; }
+  D=d;
+  $('#raidSel').innerHTML=d.raids.map(r=>`<option value="${r}" ${r===d.raid?'selected':''}>第${r}回</option>`).join('');
+  if(!D.members.some(m=>m.uid===PICK)) PICK=D.members[0].uid;
+  // 対象日は開催中なら今日。期間外や過去回は記録のある最終日
+  if(!D.days.some(x=>x.day===DAY)){
+    const t=D.days.find(x=>x.day===D.today);
+    DAY=t?t.day:(D.days.length?D.days[D.days.length-1].day:null);
+  }
+  renderWho(); render();
+}
+$('#raidSel').addEventListener('change',load);
+// gbfdataは毎時4分ごろ更新。3分おきに見に行き、新しい時刻が出ていれば描き直す
+setInterval(()=>{ if($('#auto').checked) load(); },180000);
+load();
+</script>
+</body>
+</html>

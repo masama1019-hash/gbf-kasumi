@@ -12,3 +12,6 @@ share.sh
 RENDER_DEPLOY.md
 .DS_Store
 **/.DS_Store
+
+# 個人ID(公開リポジトリに入れない)。本番は環境変数 KORAN_UIDS
+koran/members.txt

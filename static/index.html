@@ -129,6 +129,11 @@
      .sp を先に書かないと同じ詳細度で .mx の色が打ち消される */
   .sp { color:var(--mut); }
   .mx { color:var(--red); font-weight:700; background:#fdf1e7; border-radius:4px; }
+  /* 日別のTOP3。同じ色相の3段で順位を示す。.sp より後に書かないと文字色が打ち消される。
+     段どうしのΔEは10以上、文字と背景のコントラストは5.9以上(実測) */
+  .t1 { color:#7A2D0C; font-weight:700; background:#F6C9A8; border-radius:4px; }
+  .t2 { color:#8A3A14; font-weight:600; background:#FBDFC9; border-radius:4px; }
+  .t3 { color:#96471F; font-weight:600; background:#FDF1E7; border-radius:4px; }
   .load { color:var(--mut); font-size:13px; padding:20px; text-align:center; }
   .hide { display:none; }
   .badge { display:inline-block; padding:3px 10px; border-radius:20px; font-size:12px; font-weight:600; }
@@ -1156,8 +1161,14 @@ async function loadKoranAll(){
   const cell=(v,lv)=>v==null||lv==null?'<td>—</td>'
     :(v>=lv?`<td class="good">到達 +${f1(v-lv)}</td>`:`<td>あと ${f1(lv-v)}</td>`);
   const dsum=r=>Object.values(r.days).reduce((a,b)=>a+b,0);
-  const dayMax={};                      // 日ごとの最大値。その日いちばん走った人を強調する
-  d.days.forEach(x=>{ dayMax[x.day_of]=Math.max(...d.rows.map(r=>r.days[x.day_of]??-1)); });
+  // 日ごとのTOP3。同値は同じ順位にしたいので、値の重複を潰してから上位3つを取る
+  const dayTop={};
+  d.days.forEach(x=>{
+    const vs=[...new Set(d.rows.map(r=>r.days[x.day_of]).filter(v=>v!=null&&v>0))]
+      .sort((a,b)=>b-a).slice(0,3);
+    dayTop[x.day_of]=vs;
+  });
+  const topCls=(v,do_)=>{ const i=(dayTop[do_]||[]).indexOf(v); return i<0?'sp':'t'+(i+1); };
 
   $('#koranBody').innerHTML=`
     <div class="strip">
@@ -1183,7 +1194,7 @@ async function loadKoranAll(){
       ${d.rows.map((r,i)=>`<tr>
         <td style="color:var(--mut)">${i+1}</td><td>${r.name}</td>
         ${d.days.map(x=>{const v=r.days[x.day_of];
-          return `<td class="sp${v!=null&&v===dayMax[x.day_of]?' mx':''}">${f1(v)}</td>`;}).join('')}
+          return `<td class="${v==null?'sp':topCls(v,x.day_of)}">${f1(v)}</td>`;}).join('')}
         <td>${f1(dsum(r))}</td></tr>`).join('')}
     </table></div>
     </div>`;

@@ -98,6 +98,13 @@
   button.minitab { padding:6px 14px; font-size:13px; color:var(--mut); cursor:pointer; }
   button.minitab.on { background:var(--blue); color:#fff; border-color:var(--blue); font-weight:600; }
   .chartbox { position:relative; height:240px; }
+  /* 個ランの一覧チップ(編集パネル) */
+  .kmwrap { display:flex; flex-wrap:wrap; gap:6px; }
+  .kmchip { display:inline-flex; align-items:center; gap:5px; font-size:12px; color:var(--tx);
+            background:#f1f3f6; border-radius:6px; padding:3px 5px 3px 9px; white-space:nowrap; }
+  .kmchip button { border:none; background:transparent; color:var(--mut); font-size:13px;
+                   line-height:1; padding:1px 4px; cursor:pointer; border-radius:4px; }
+  .kmchip button:hover { background:#e2e6eb; color:var(--tx); }
   /* カード内に複数のグラフを置くときの小見出し。h2より小さく、凡例チップの上に出す */
   .subcap { font-size:12.5px; font-weight:600; color:var(--mut); margin:0 0 7px; }
   /* 凡例。Chart.jsの箱ではなく自前のチップで出す。
@@ -174,6 +181,7 @@
 <div id="pane-koran" class="hide">
   <div class="card">
     <div class="row">
+      <select id="koranMem" onchange="pickKoranMem()" title="よく見る人の一覧。右の「編集」で追加・削除できます"></select>
       <input id="koranQ" placeholder="プレイヤー名 または ユーザーID" style="flex:1;min-width:180px">
       <label style="font-size:12px;color:var(--mut)" title="gbfdataは毎時更新なので、新しい時刻のデータが出たら自動で取り直します"><input type="checkbox" id="koranAuto"> 自動更新</label>
       <label style="font-size:13px;color:var(--mut)">比較</label>
@@ -183,7 +191,9 @@
         <option value="2000">英雄(2000位)</option>
       </select>
       <button class="primary" onclick="loadKoran()">検索</button>
+      <button onclick="toggleKoranEdit()">編集</button>
     </div>
+    <div id="koranEdit" hidden></div>
     <div style="font-size:11px;color:var(--mut);margin-top:6px">個人貢献度を 英雄ライン(2000位)・10万位ライン と比較。日別の推移に加え、開催中の当日（終了後は最終日）の時刻毎を自動で下に足します。<br>
       ※個ランについて順位によってはデータ取得に時間がかかる、または取得不可の場合があります。（順位帯毎に個人を検索しているため）</div>
   </div>
@@ -367,6 +377,7 @@ async function init(raid){
   }
   fillDates();
   fillKoranDays();
+  renderKoranMem();      // 一覧の既定はcfg.membersなので、設定が届いてから作る
 }
 // 時刻表示: 日をまたいだ25〜30時は 1〜6時 と表す(24:00はそのまま24)
 const hLbl=t=>{const h=parseInt(t);return String(h>24?h-24:h);};
@@ -1044,6 +1055,60 @@ function koranTimeProjHtml(P,s2,s1,name,confirmed){
   if(!note.length) return '';
   return `<div class="card" style="font-size:13px;color:var(--mut)">着地見込み：${note.join('　／　')}</div>`;
 }
+// ---- 個ランの一覧(この端末に保存) ----
+// 既定はサーバが返す団員。追加・削除するとlocalStorageに移り、以後はそちらを使う。
+// ⚠️ サーバの先読み(prewarm)は団員だけを温めるので、足した人の初回検索は遅い
+const KMEM='koranMembers';
+let KM=(()=>{ try{ const v=JSON.parse(localStorage.getItem(KMEM)||'null');
+  return (Array.isArray(v)&&v.length)?v:null; }catch(e){ return null; } })();
+const kmSave=()=>{ try{ localStorage.setItem(KMEM,JSON.stringify(KM)); }catch(e){} };
+const kmBase=()=>(cfg&&cfg.members)?cfg.members:[];
+const kmList=()=>KM||kmBase();
+const kmHas=uid=>kmList().some(m=>+m.uid===+uid);
+
+function renderKoranMem(){
+  const sel=$('#koranMem'); if(!sel) return;
+  const cur=$('#koranQ')?$('#koranQ').value.trim():'';
+  sel.innerHTML='<option value="">一覧から選ぶ…</option>'
+    +kmList().map(m=>`<option value="${m.uid}" ${String(m.uid)===cur?'selected':''}>${m.name}</option>`).join('');
+}
+function pickKoranMem(){
+  const v=$('#koranMem').value; if(!v) return;
+  $('#koranQ').value=v; loadKoran();
+}
+function toggleKoranEdit(){ const e=$('#koranEdit'); e.hidden=!e.hidden; if(!e.hidden) renderKoranEdit(); }
+function renderKoranEdit(msg){
+  const base=kmBase(), same=!KM;
+  $('#koranEdit').innerHTML=`
+    <div style="border-top:1px solid #eef0f2;margin-top:10px;padding-top:10px">
+      <div style="font-size:12.5px;color:var(--mut);font-weight:600;margin-bottom:6px">一覧（${kmList().length}人）</div>
+      <div class="kmwrap">${kmList().map(m=>`<span class="kmchip">${m.name}
+        <button onclick="kmDel(${m.uid})" title="一覧から外す">×</button></span>`).join('')}</div>
+      ${msg?`<div style="font-size:12px;color:var(--mut);margin-top:7px">${msg}</div>`:''}
+      <div style="font-size:11.5px;color:var(--mut);margin-top:8px">
+        追加は上の欄で名前かIDを検索し、結果に出る「一覧に追加」を押してください。
+        一覧はこの端末にだけ保存されます（他の団員の画面は変わりません）。
+        ${same?'':`<button onclick="kmReset()" style="font-size:11.5px;padding:2px 9px;margin-left:6px">団員の初期一覧に戻す</button>`}
+      </div>
+    </div>`;
+}
+function kmAdd(uid,name){
+  if(kmHas(uid)) return;
+  KM=[...kmList(),{name:name||String(uid),uid:+uid}]; kmSave();
+  renderKoranMem(); if(!$('#koranEdit').hidden) renderKoranEdit('追加しました');
+  loadKoran();
+}
+function kmDel(uid){
+  const next=kmList().filter(m=>+m.uid!==+uid);
+  if(!next.length){ renderKoranEdit('最後のひとりは外せません'); return; }
+  KM=next; kmSave(); renderKoranMem(); renderKoranEdit('外しました');
+  loadKoran();
+}
+function kmReset(){
+  KM=null; try{ localStorage.removeItem(KMEM); }catch(e){}
+  renderKoranMem(); renderKoranEdit('団員の初期一覧に戻しました');
+}
+
 async function loadKoran(){
   const q=$('#koranQ').value.trim(); if(!q)return;
   $('#koranBody').innerHTML='<div class="load">検索中…(初回は30秒ほど)</div>';
@@ -1052,7 +1117,8 @@ async function loadKoran(){
   catch(e){ $('#koranBody').innerHTML='<div class="card bad">取得に時間がかかり切断されました。もう一度「検索」を押してください</div>'; return; }
   if(d.error){$('#koranBody').innerHTML=`<div class="card bad">${d.error}</div>`;return;}
   if(d.candidates){
-    const rows=d.candidates.map(c=>`<tr><td style="text-align:left">${c.name}</td><td>${c.rank?c.rank+'位':'—'}</td><td>${f1(c.point)}億</td><td><button onclick="$('#koranQ').value='${c.user_id}';loadKoran()">このプレイヤー</button></td></tr>`).join('');
+    const rows=d.candidates.map(c=>`<tr><td style="text-align:left">${c.name}</td><td>${c.rank?c.rank+'位':'—'}</td><td>${f1(c.point)}億</td><td><button onclick="$('#koranQ').value='${c.user_id}';loadKoran()">このプレイヤー</button>
+      <button ${kmHas(c.user_id)?'disabled':`onclick="kmAdd(${c.user_id},'${(c.name||'').replace(/'/g,"\\'")}')"`}>${kmHas(c.user_id)?'一覧にあり':'一覧に追加'}</button></td></tr>`).join('');
     $('#koranBody').innerHTML=`<div class="card"><h2>該当プレイヤーが${d.candidates.length}件 — 現在順位・累積で選択</h2><table><tr><th style="text-align:left">名前</th><th>現順位</th><th>累積</th><th></th></tr>${rows}</table></div>`;
     return;
   }
@@ -1085,7 +1151,8 @@ async function loadKoran(){
     +(s2?`<td>${f1(r.b2000)}</td>${cell(r.vs2000)}`:'')
     +(s1?`<td>${f1(r.b100k)}</td>${cell(r.vs100k)}`:'')+`</tr>`).join('');
   $('#koranBody').innerHTML=`
-    <div class="card"><div class="row" style="justify-content:space-between"><div><b style="font-size:16px">${d.name}</b> <a href="${d.url}" target="_blank" style="font-size:12px">gbfdata↗</a></div></div></div>
+    <div class="card"><div class="row" style="justify-content:space-between"><div><b style="font-size:16px">${d.name}</b> <a href="${d.url}" target="_blank" style="font-size:12px">gbfdata↗</a></div>
+      <button style="font-size:12px;padding:4px 11px" onclick="${kmHas(d.user_id)?`kmDel(${d.user_id})`:`kmAdd(${d.user_id},'${(d.name||'').replace(/'/g,"\\'")}')`}">${kmHas(d.user_id)?'一覧から外す':'＋ 一覧に追加'}</button></div></div>
     ${cards}
     ${projSection}
     <div class="card"><h2>累積貢献度の推移（億）</h2><div class="chartbox"><canvas id="kCum"></canvas></div></div>

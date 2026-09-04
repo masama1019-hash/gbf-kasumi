@@ -43,7 +43,14 @@
   .hero { background:var(--card); border:1px solid #e3e8ee; border-radius:12px;
           box-shadow:0 1px 3px rgba(28,39,51,.07); overflow:hidden; }
   .heroTop { display:grid; grid-template-columns:auto 1fr auto; gap:22px; align-items:center; padding:22px 24px; }
-  @media (max-width:620px){ .heroTop { grid-template-columns:1fr; gap:10px; } }
+  @media (max-width:620px){
+    .heroTop { grid-template-columns:1fr; gap:10px; }
+    /* 狭い画面では左右の余白がグラフ幅を大きく削るので詰める(上下は残す) */
+    main { padding:10px; }
+    .card { padding:14px 10px; }
+    table { font-size:12px; }
+    th,td { padding:6px 5px; }
+  }
   .heroLead .k, .heroWin .k { font-size:11.5px; color:var(--mut); }
   .heroLead .v { font-size:40px; font-weight:700; letter-spacing:-.02em; line-height:1.15; }
   .heroWin { text-align:right; }
@@ -102,6 +109,11 @@
   h2 { font-size:14px; color:var(--mut); font-weight:600; margin-bottom:8px; }
   table { width:100%; border-collapse:collapse; font-size:13px; }
   th,td { padding:6px 8px; text-align:right; border-bottom:1px solid #eef0f2; }
+  /* 横スクロールさせる表。width:100%のままだと列が痩せて日本語が1文字ずつ折り返るので、
+     幅は中身なり(min-width:100%で狭い表は従来どおり全幅)にして折り返しを止める */
+  .tw { overflow-x:auto; -webkit-overflow-scrolling:touch; }
+  .tw table { width:auto; min-width:100%; }
+  .tw th, .tw td { white-space:nowrap; }
   th:first-child,td:first-child { text-align:left; }
   .good { color:var(--green); font-weight:600; } .bad { color:var(--red); font-weight:600; }
   /* 時速セル。既定は控えめな色にして、その列の最高時速だけ .mx で立たせる。
@@ -136,13 +148,12 @@
       <select id="pastSel">
         <option value="0">なし</option>
         <option value="1" selected>前日</option>
-        <option value="9">全本戦日</option>
       </select>
       <button class="primary" onclick="loadLive()">更新</button>
       <span class="chks">
         <label title="gbfdataは毎時更新なので、新しい時刻のデータが出たら自動で取り直します"><input type="checkbox" id="autoRef"> 自動更新</label>
-        <button id="oppSave" title="この日の対戦相手として保存します。次からは日付を選ぶだけで自動で入り、団員の画面にも同じ相手が入ります">相手を保存</button>
         <label id="retreatLabel" title="団として撤退したらチェック。切り替えにはパスワードが必要で、団員全員の画面に反映されます"><input type="checkbox" id="retreatChk"> 撤退済み</label>
+        <button id="oppSave" title="この日の対戦相手として保存します。次からは日付を選ぶだけで自動で入り、団員の画面にも同じ相手が入ります">相手を保存</button>
       </span>
     </div>
   </div>
@@ -244,6 +255,9 @@ function drawKeys(canvas,datasets){
       : `<li><span class="kl" style="background:${col}"></span>${ds.label}</li>`;
   }).join('');
 }
+// 終端の札(endLabelPlugin)は点の「左」に描くので、右余白は終端の点(半径3.5)が
+// 枠に接しない分だけでよい。以前は札の幅ぶん80〜104px空けていたが、全て死に余白だった
+const padR=()=>window.innerWidth<620?10:16;
 function mkChart(id,type,labels,datasets,extra={}){
   if(charts[id]) charts[id].destroy();
   const el=$(id);
@@ -255,7 +269,9 @@ function mkChart(id,type,labels,datasets,extra={}){
   drawKeys(el,datasets);
   charts[id]=new Chart(el,{type,data:{labels,datasets},plugins:[endLabelPlugin],options:{
     responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
-    layout:{padding:{top:10,right:extra.padRight||8}},
+    layout:{padding:{top:10,right:padR()}},
+    // 回転などで幅が変わったら余白も取り直す(作成時の値のままだと横向きで痩せる)
+    onResize(ch){ ch.options.layout.padding.right=padR(); },
     plugins:{
       legend:{display:false},                       // 凡例は上のチップで出す
       tooltip:{backgroundColor:'rgba(24,33,44,.94)',titleColor:'#fff',bodyColor:'#e7edf4',
@@ -401,7 +417,7 @@ function yosenBorderHistHtml(hist,curBorder){
   const prev1=hist[0];
   const vs=(curBorder!=null&&prev1&&prev1.border)?Math.round(curBorder/prev1.border*100):null;
   return `<div class="card"><h2>参考：過去6回の予選（億）</h2>
-    <div style="overflow-x:auto"><table>
+    <div class="tw"><table>
       <tr><th>回</th><th>属性</th><th>開催</th><th>300位</th><th>前回比</th><th>霞桜団</th><th>順位</th><th>300位差</th></tr>${rows}
     </table></div>
     ${vs!=null?`<div style="font-size:12px;color:var(--mut);margin-top:6px">今回の現時点 ${f1(curBorder)}億 は前回（第${prev1.raid}回 ${f1(prev1.border)}億）の ${vs}%。</div>`:''}
@@ -518,7 +534,7 @@ async function loadYosen(){
     </div>
     <div class="card"><h2>累積貢献度（億）— 実線=今回(第${d.raid}回) / 破線=前回(第${d.raid-1}回)</h2><div class="chartbox"><canvas id="yCum"></canvas></div></div>
     <div class="card"><h2>時速（億/h）— 実線=今回(第${d.raid}回) / 破線=前回(第${d.raid-1}回)</h2><div class="chartbox"><canvas id="ySpd"></canvas></div></div>
-    <div class="card"><h2>予選推移（数値・億）</h2><div style="overflow-x:auto"><table><tr><th>時刻</th><th>霞桜団</th><th>順位</th><th>時速</th><th>300位</th><th>時速</th><th>差</th>${p?'<th>前回300位</th><th>前回比</th>':''}</tr>${
+    <div class="card"><h2>予選推移（数値・億）</h2><div class="tw"><table><tr><th>時刻</th><th>霞桜団</th><th>順位</th><th>時速</th><th>300位</th><th>時速</th><th>差</th>${p?'<th>前回300位</th><th>前回比</th>':''}</tr>${
       K.map((k,i)=>{const df=(oc[i]!=null&&bc[i]!=null)?oc[i]-bc[i]:null; const bd=(bc[i]!=null&&pb[i]!=null)?bc[i]-pb[i]:null;
         return `<tr><td>${L[i]}</td><td>${f1(oc[i])}</td><td style="color:var(--mut)">${orank[i]?orank[i]+'位':'—'}</td><td class="sp${mxCls(os[i],mxO)}">${f1(os[i])}</td><td>${f1(bc[i])}</td><td class="sp${mxCls(bs[i],mxB)}">${f1(bs[i])}</td><td class="${df!=null?(df>=0?'good':'bad'):''}">${df!=null?(df>0?'+':'')+df.toFixed(1):'—'}</td>${p?`<td style="color:var(--mut)">${f1(pb[i])}</td><td class="${bd!=null?(bd>0?'bad':'good'):''}">${bd!=null?(bd>0?'+':'')+bd.toFixed(1):'—'}</td>`:''}</tr>`;}).join('')
     }</table></div></div>
@@ -529,8 +545,7 @@ async function loadYosen(){
     {label:'300位',data:bc,borderColor:'#D85A30',endLabel:true,tension:.35,pointRadius:0,borderWidth:2,spanGaps:true},
     ...(p?[{label:'前回 霞桜団',data:pcum('ours'),borderColor:'#378ADD',borderDash:[4,3],tension:.35,pointRadius:0,borderWidth:1.2,spanGaps:true},
          {label:'前回 300位',data:pcum('border'),borderColor:'#D85A30',borderDash:[4,3],tension:.35,pointRadius:0,borderWidth:1.2,spanGaps:true}]:[]),
-    ...(projFinal!=null?[{label:'300位 着地予想',data:L.map(()=>projFinal),borderColor:'#993C1D',borderDash:[2,3],tension:0,pointRadius:0,borderWidth:1.2}]:[])],
-    {padRight:80});
+    ...(projFinal!=null?[{label:'300位 着地予想',data:L.map(()=>projFinal),borderColor:'#993C1D',borderDash:[2,3],tension:0,pointRadius:0,borderWidth:1.2}]:[])]);
   mkChart('#ySpd','line',L,[
     {label:'霞桜団',data:os,borderColor:'#378ADD',tension:.35,pointRadius:0,borderWidth:2,spanGaps:true},
     {label:'300位',data:bs,borderColor:'#D85A30',tension:.35,pointRadius:0,borderWidth:2,spanGaps:true},
@@ -610,7 +625,7 @@ function pickOpp(gid){ $('#oppInput').value=gid; loadLive(); }
 async function loadLive(){
   if($('#dateSel').value==='yosen'){ return loadYosen(); }
   const past=$('#pastSel').value;
-  $('#liveBody').innerHTML='<div class="load">データ取得中…(初回や過去比較ありは1〜2分かかることがあります)</div>';
+  $('#liveBody').innerHTML='<div class="load">データ取得中…(初回は30秒ほどかかります)</div>';
   const p=new URLSearchParams({date:$('#dateSel').value,past,raid:$('#raidSel').value});
   if($('#oppInput').value.trim()) p.set('opp',$('#oppInput').value.trim());
   let d;
@@ -713,19 +728,19 @@ async function loadLive(){
     ${typeCards?`<div class="strip strip2">${typeCards}</div>`:''}
     <div class="card"><h2>当日貢献度${(d.past||[]).length?(d.past.length===1?' — 点線（前日貢献度）':' — 点線（過去日貢献度）'):''}</h2><div class="chartbox"><canvas id="cumC"></canvas></div></div>
     <div class="card"><h2>時速（億/h）</h2><div class="chartbox"><canvas id="spdC"></canvas></div></div>
-    ${(d.ref||[]).length?`<div class="card"><h2>参考情報</h2><table><tr><th>日程</th><th>${d.ours.name}</th><th>順位</th><th>${d.opp.name||'相手'}</th><th>順位</th><th>差</th></tr>${
+    ${(d.ref||[]).length?`<div class="card"><h2>参考情報</h2><div class="tw"><table><tr><th>日程</th><th>${d.ours.name}</th><th>順位</th><th>${d.opp.name||'相手'}</th><th>順位</th><th>差</th></tr>${
       d.ref.map(r=>{const has=r.ours!=null&&r.opp!=null; const df=has?r.ours-r.opp:null;
         return `<tr><td>${r.label}</td><td>${f1(r.ours)}</td><td style="color:var(--mut)">${r.ours_rank?r.ours_rank+'位':'—'}</td><td>${f1(r.opp)}</td><td style="color:var(--mut)">${r.opp_rank?r.opp_rank+'位':'—'}</td><td class="${df!=null?(df>=0?'good':'bad'):''}">${df!=null?(df>0?'+':'')+df.toFixed(1):'—'}</td></tr>`;}).join('')
-    }</table></div>`:''}
+    }</table></div></div>`:''}
     ${(d.rank_history||[]).some(r=>r.opp!=null)?`<div class="card"><h2>総合順位の推移（直近3開催 予選〜本戦）</h2>${rankHeatHtml(d.rank_history,d.ours.name,d.opp.name||'相手')}</div>`:''}
-    ${(oc.some(v=>v!=null)||pc.some(v=>v!=null))?`<div class="card"><h2>${d.label}の推移（数値・億）— 当日</h2><div style="overflow-x:auto"><table>
+    ${(oc.some(v=>v!=null)||pc.some(v=>v!=null))?`<div class="card"><h2>${d.label}の推移（数値・億）— 当日</h2><div class="tw"><table>
       <tr><th>時刻</th><th>${d.ours.name}</th><th>時速</th><th>${oppName}</th><th>時速</th><th>差</th></tr>${
       H.map((h,i)=>{const o=oc[i],p=pc[i];
         if(o==null&&p==null) return '';
         const df=(o!=null&&p!=null)?o-p:null;
         return `<tr><td>${h}時</td><td>${f1(o)}</td><td class="sp${mxCls(os[i],mxOs)}">${f1(os[i])}</td><td>${f1(p)}</td><td class="sp${mxCls(ps[i],mxPs)}">${f1(ps[i])}</td><td class="${df!=null?(df>=0?'good':'bad'):''}">${df!=null?(df>0?'+':'')+df.toFixed(1):'—'}</td></tr>`;
       }).join('')}</table></div></div>`:''}
-    ${prev?`<div class="card"><h2>${prev.label}の推移（数値・億）— 前日</h2><div style="overflow-x:auto"><table>
+    ${prev?`<div class="card"><h2>${prev.label}の推移（数値・億）— 前日</h2><div class="tw"><table>
       <tr><th>時刻</th><th>${d.ours.name}</th><th>時速</th><th>${oppName}</th><th>時速</th><th>差</th></tr>${
       d.hours.filter(h=>prev.ours.cum[h]!=null||prev.opp.cum[h]!=null).map(h=>{
         const o=prev.ours.cum[h],s=prev.ours.speed[h],p=prev.opp.cum[h],q=prev.opp.speed[h];
@@ -744,7 +759,7 @@ async function loadLive(){
   mkChart('#cumC','line',H,[
     {label:d.ours.name,data:oc,borderColor:'#378ADD',area:'3d',endLabel:true,tension:.35,pointRadius:0,borderWidth:2,spanGaps:true},
     {label:d.opp.name||'相手',data:pc,borderColor:'#D85A30',endLabel:true,tension:.35,pointRadius:0,borderWidth:2,spanGaps:true},
-    ...pastSets('cum')],{padRight:88});
+    ...pastSets('cum')]);
   mkChart('#spdC','line',H,[
     {label:d.ours.name,data:os,borderColor:'#378ADD',tension:.35,pointRadius:0,borderWidth:2,spanGaps:true},
     {label:d.opp.name||'相手',data:ps,borderColor:'#D85A30',tension:.35,pointRadius:0,borderWidth:2,spanGaps:true},
@@ -853,14 +868,14 @@ async function loadScout(){
       </div>
     </div>
     ${cards}
-    <div class="card"><h2>直近3開催 本戦1〜4の当日貢献度比較（霞桜団 ${dayWins}勝 / ${dayN}戦）</h2><div style="overflow-x:auto"><table>
+    <div class="card"><h2>直近3開催 本戦1〜4の当日貢献度比較（霞桜団 ${dayWins}勝 / ${dayN}戦）</h2><div class="tw"><table>
       <tr><th>日程</th><th>霞桜団</th><th>${d.name}</th><th>差</th><th>判定</th></tr>${p3rows}</table></div></div>
     <div class="card"><h2>直近3回の本戦貢献度比較</h2><div class="chartbox"><canvas id="scTot"></canvas></div></div>
     <div class="card"><h2>総合順位の推移（直近3開催 予選〜本戦）</h2>${rankHeatHtml(d.rank_history||[],'霞桜団',d.name)}</div>
     <div class="card"><h2 id="scSpdTitle">本戦の最高時速</h2><div id="scSpdBox"><div class="load">時速データ取得中…(20秒ほど)</div></div></div>
     <div class="card"><h2>前日の比較</h2><div id="scPrevBox"><div class="load">前日データ取得中…</div></div></div>
     ${scoutMembersHtml(d.members,d.name)}
-    <div class="card"><h2>${d.name} の過去実績（億）</h2><div style="overflow-x:auto"><table>
+    <div class="card"><h2>${d.name} の過去実績（億）</h2><div class="tw"><table>
       <tr><th>回</th><th>予選</th><th>本1</th><th>本2</th><th>本3</th><th>本4</th><th>本戦計</th><th>総計</th><th>順位</th><th>霞桜団との差</th></tr>${evRows}</table></div>
       <div style="font-size:11px;color:var(--mut);margin-top:6px">赤字=その回で最も稼いだ本戦日 ／ 差=霞桜団の本戦計 − 相手の本戦計</div></div>`;
   // 直近3開催 × 本戦1〜4 の当日貢献度
@@ -898,8 +913,8 @@ async function loadScoutSpeed(gid,oppName){
     <div class="chartbox"><canvas id="scSpd"></canvas></div>
     <div id="scSpdTable" style="overflow-x:auto;margin-top:10px"></div>`;
   SPD={L, om, oa, pm, pa, oppName,
-       tblMax:`<table><tr><th>日程</th><th>霞桜団 最高時速</th><th>${oppName} 最高時速</th><th>最高時速差</th></tr>${rowsMax}</table>`,
-       tblAvg:`<table><tr><th>日程</th><th>霞桜団 平均時速</th><th>${oppName} 平均時速</th><th>平均時速差</th></tr>${rowsAvg}</table>`};
+       tblMax:`<div class="tw"><table><tr><th>日程</th><th>霞桜団 最高時速</th><th>${oppName} 最高時速</th><th>最高時速差</th></tr>${rowsMax}</table></div>`,
+       tblAvg:`<div class="tw"><table><tr><th>日程</th><th>霞桜団 平均時速</th><th>${oppName} 平均時速</th><th>平均時速差</th></tr>${rowsAvg}</table></div>`};
   scoutSpeedTab('max');
 }
 function scoutPrevView(prev,oppName){
@@ -909,7 +924,7 @@ function scoutPrevView(prev,oppName){
     const rows=prev.rows.map(r=>{const df=(r.ours!=null&&r.opp!=null)?r.ours-r.opp:null;
       return `<tr><td>${r.label}</td><td>${f1(r.ours)}</td><td>${f1(r.opp)}</td><td class="${df!=null?(df>=0?'good':'bad'):''}">${df!=null?(df>0?'+':'')+f1(df):'—'}</td></tr>`;}).join('');
     box.innerHTML=`<div style="font-size:12px;color:var(--mut);margin-bottom:6px">${prev.label}</div>
-      <div style="overflow-x:auto"><table><tr><th>日程</th><th>霞桜団</th><th>${oppName}</th><th>差</th></tr>${rows}</table></div>`;
+      <div class="tw"><table><tr><th>日程</th><th>霞桜団</th><th>${oppName}</th><th>差</th></tr>${rows}</table></div>`;
     return;
   }
   const T=prev.times, oc=prev.ours.cum, os=prev.ours.speed, pc=prev.opp.cum, ps=prev.opp.speed;
@@ -931,7 +946,7 @@ function scoutPrevView(prev,oppName){
   mkChart('#scPrevCum','line',lab,[
     {label:'霞桜団',data:L.map(t=>oc[t]??null),borderColor:'#378ADD',area:'3d',endLabel:true,tension:.35,borderWidth:2,pointRadius:0,spanGaps:true},
     {label:oppName,data:L.map(t=>pc[t]??null),borderColor:'#D85A30',endLabel:true,tension:.35,borderWidth:2,pointRadius:0,spanGaps:true}
-  ],{padRight:88});
+  ]);
   mkChart('#scPrevSpd','line',lab,[
     {label:'霞桜団',data:L.map(t=>os[t]??null),borderColor:'#378ADD',tension:.35,borderWidth:2,pointRadius:0,spanGaps:true},
     {label:oppName,data:L.map(t=>ps[t]??null),borderColor:'#D85A30',tension:.35,borderWidth:2,pointRadius:0,spanGaps:true}
@@ -948,7 +963,7 @@ function scoutMembersHtml(mv,name){
     +`<td style="color:var(--mut)">${r.rank?r.rank.toLocaleString('ja-JP')+'位':'—'}</td></tr>`).join('');
   return `<div class="card"><h2>${name} の団員一覧（${lbl}時点・億）</h2>
     <div style="font-size:12px;color:var(--mut);margin-bottom:8px">${mv.count}人中 ${mv.ranked}人に貢献度の記録あり ／ 合計 ${f1(mv.total)}億${share!=null?` ／ 上位5人で ${f1(mv.top5)}億（全体の${share}%）`:''}</div>
-    <div style="overflow-x:auto"><table><tr><th>団内</th><th>名前</th><th>貢献度</th><th>個人順位</th></tr>${rows}</table></div>
+    <div class="tw"><table><tr><th>団内</th><th>名前</th><th>貢献度</th><th>個人順位</th></tr>${rows}</table></div>
     <div style="font-size:11px;color:var(--mut);margin-top:6px">貢献度の多い順。記録が無い団員は今回の個人ランキング圏外です。</div></div>`;
 }
 function scoutSpeedTab(mode){
@@ -998,7 +1013,7 @@ function koranPast3Html(p3,s2,s1,name){
   let rows=row(name,p3.player);
   if(s2) rows+=row('英雄(2000位)',p3.b2000);
   if(s1) rows+=row('10万位',p3.b100k);
-  return `<div class="card"><h2>参考：直近6回の着地（億）</h2><div style="overflow-x:auto"><table><tr><th style="text-align:left">ライン</th>${head}</tr>${rows}</table></div>
+  return `<div class="card"><h2>参考：直近6回の着地（億）</h2><div class="tw"><table><tr><th style="text-align:left">ライン</th>${head}</tr>${rows}</table></div>
     <div style="font-size:11px;color:var(--mut);margin-top:6px">※2000位/10万位はgbfdata優先、無い回はGameWith履歴で補完（第77回まで。それ以前は—）。本人は履歴のある範囲で表示。</div></div>`;
 }
 // 着地の値は判断バンドの右とストリップに出るので、ここでは見込みの文だけ返す
@@ -1055,7 +1070,7 @@ async function loadKoran(){
     ${cards}
     ${projSection}
     <div class="card"><h2>累積貢献度の推移（億）</h2><div class="chartbox"><canvas id="kCum"></canvas></div></div>
-    <div class="card"><h2>日別の比較（数値・億）</h2><div style="overflow-x:auto"><table><tr><th>日程</th><th>${d.name}</th><th>順位</th>${s2?'<th>英雄(2000位)</th><th>差</th>':''}${s1?'<th>10万位</th><th>差</th>':''}</tr>${trows}</table></div></div>
+    <div class="card"><h2>日別の比較（数値・億）</h2><div class="tw"><table><tr><th>日程</th><th>${d.name}</th><th>順位</th>${s2?'<th>英雄(2000位)</th><th>差</th>':''}${s1?'<th>10万位</th><th>差</th>':''}</tr>${trows}</table></div></div>
     ${koranPast3Html(d.past3,s2,s1,d.name)}
     <div id="koranHourBox"></div>`;
   loadKoranHour(q, koranTargetDay(d.rows), d.name, s2, s1);
@@ -1064,7 +1079,7 @@ async function loadKoran(){
     {label:d.name,data:d.rows.map(r=>r.player),borderColor:'#378ADD',area:'3d',endLabel:true,tension:0.35,borderWidth:2,pointRadius:0},
     ...(s2?[{label:'英雄(2000位)',data:d.rows.map(r=>r.b2000),borderColor:'#D85A30',endLabel:true,tension:0.35,borderWidth:2,pointRadius:0}]:[]),
     ...(s1?[{label:'10万位',data:d.rows.map(r=>r.b100k),borderColor:'#1D9E75',endLabel:true,tension:0.35,borderWidth:2,pointRadius:0}]:[])
-  ],{padRight:104});
+  ]);
 }
 // 個ランの自動更新(ライブと同じ: 毎時3分＋3分おき再試行)
 let kTimer=null, KORAN_TICK=null, kRetryN=0;
@@ -1110,12 +1125,12 @@ async function loadKoranHour(q, sch, name, s2, s1){
   box.innerHTML=`
     <div class="card"><h2>${d.label} 累積の推移（億・1H）</h2><div class="chartbox"><canvas id="kCumH"></canvas></div></div>
     <div class="card"><h2>${d.label} 時速（億・1H）</h2><div class="chartbox"><canvas id="kSpdH"></canvas></div></div>
-    <div class="card"><h2>${d.label}（億単位）</h2><div style="overflow-x:auto"><table><tr><th>時刻</th><th>${name}</th><th>順位</th><th>時速</th>${s2?'<th>2000位</th><th>時速</th><th>差</th>':''}${s1?'<th>10万位</th><th>時速</th><th>差</th>':''}</tr>${trows}</table></div></div>`;
+    <div class="card"><h2>${d.label}（億単位）</h2><div class="tw"><table><tr><th>時刻</th><th>${name}</th><th>順位</th><th>時速</th>${s2?'<th>2000位</th><th>時速</th><th>差</th>':''}${s1?'<th>10万位</th><th>時速</th><th>差</th>':''}</tr>${trows}</table></div></div>`;
   mkChart('#kCumH','line',Lx,[
     {label:name,data:T.map(t=>pc[t]??null),borderColor:'#378ADD',area:'3d',endLabel:true,tension:0.35,borderWidth:2,pointRadius:0,spanGaps:true},
     ...(s2?[{label:'英雄(2000位)',data:T.map(t=>b2[t]??null),borderColor:'#D85A30',endLabel:true,tension:0.35,borderWidth:2,pointRadius:0,spanGaps:true}]:[]),
     ...(s1?[{label:'10万位',data:T.map(t=>b1[t]??null),borderColor:'#1D9E75',endLabel:true,tension:0.35,borderWidth:2,pointRadius:0,spanGaps:true}]:[])
-  ],{padRight:104});
+  ]);
   mkChart('#kSpdH','line',Lx,[
     {label:name,data:T.map(t=>psp[t]??null),borderColor:'#378ADD',tension:0.35,borderWidth:2,pointRadius:0,spanGaps:true},
     ...(s2?[{label:'英雄(2000位)',data:T.map(t=>b2s[t]??null),borderColor:'#D85A30',tension:0.35,borderWidth:1.4,pointRadius:0,spanGaps:true}]:[]),

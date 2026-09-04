@@ -37,6 +37,11 @@
     .card { padding:14px 10px; }
     table { font-size:12px; }
     th,td { padding:6px 5px; }
+    /* バッジ(「英雄(2000位) 到達」など)が長く、横並びだと文の列が細く潰れる。
+       本体アプリのバッジは「抑え推奨」程度で短いのでここだけの事情 */
+    .heroTop { padding:16px 14px; }
+    .heroAct { flex-direction:column; gap:8px; padding:13px 14px; }
+    .heroAct .badge { align-self:flex-start; }
   }
   .heroLead .k, .heroWin .k { font-size:11.5px; color:var(--mut); }
   .heroLead .v { font-size:40px; font-weight:700; letter-spacing:-.02em; line-height:1.15; }

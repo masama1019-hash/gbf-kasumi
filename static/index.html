@@ -263,17 +263,21 @@ const refLinePlugin={id:'refLine',afterDatasetsDraw(chart){
     const px=x.getPixelForValue(r.v);
     if(px<a.left||px>a.right) return;
     ctx.save();
-    ctx.strokeStyle=r.color; ctx.lineWidth=1.2; ctx.setLineDash([4,3]);
-    ctx.beginPath(); ctx.moveTo(px,a.top); ctx.lineTo(px,a.bottom); ctx.stroke();
+    // ⚠️ 色を濃くするだけでは、一番濃い棒(本戦4日目)の上でコントラストが1.2まで落ちて埋もれる。
+    //    白い縁取りを先に引いて、どの段の上でも必ず切り離す
+    ctx.beginPath(); ctx.moveTo(px,a.top); ctx.lineTo(px,a.bottom);
+    ctx.strokeStyle='#fff'; ctx.lineWidth=4.5; ctx.stroke();
+    ctx.strokeStyle=r.color; ctx.lineWidth=2.2; ctx.setLineDash([6,4]);
+    ctx.stroke();
     ctx.setLineDash([]);
-    ctx.font="600 10.5px -apple-system,'Hiragino Sans',sans-serif";
-    ctx.textAlign='left'; ctx.textBaseline='top';
-    // 棒の上に載るので、白い下敷きを敷かないと文字が読めない
-    const w=ctx.measureText(r.label).width;
-    ctx.fillStyle='rgba(255,255,255,.88)';
-    ctx.fillRect(px+2,a.top+1,w+5,14);
+    // ラベルは白文字の帯。線の色に白文字でコントラスト4.9以上ある
+    ctx.font="700 11px -apple-system,'Hiragino Sans',sans-serif";
+    ctx.textAlign='left'; ctx.textBaseline='middle';
+    const w=ctx.measureText(r.label).width, bx=px+5, by=a.top+2;
     ctx.fillStyle=r.color;
-    ctx.fillText(r.label,px+4.5,a.top+3);
+    ctx.beginPath(); ctx.roundRect(bx,by,w+12,17,4); ctx.fill();
+    ctx.fillStyle='#fff';
+    ctx.fillText(r.label,bx+6,by+9);
     ctx.restore();
   });
 }};
@@ -1173,7 +1177,6 @@ async function loadKoranAll(){
     </table></div></div>
     <div class="card"><h2>累積と日別の内訳（億）</h2>
       <div class="chartbox" style="height:${Math.max(240, d.rows.length*19+64)}px"><canvas id="kAll"></canvas></div>
-      <div style="font-size:11.5px;color:var(--mut);margin-top:8px">棒の長さが累積、色の濃さが日程（薄い=予選、濃い=本戦4日目）。縦の破線は英雄(2000位)と10万位のライン</div>
     </div>
     <div class="card"><h2>日別の貢献度（億）</h2><div class="tw"><table class="rank">
       <tr><th></th><th>名前</th>${d.days.map(x=>`<th>${x.label}</th>`).join('')}<th>合計</th></tr>
@@ -1183,7 +1186,6 @@ async function loadKoranAll(){
           return `<td class="sp${v!=null&&v===dayMax[x.day_of]?' mx':''}">${f1(v)}</td>`;}).join('')}
         <td>${f1(dsum(r))}</td></tr>`).join('')}
     </table></div>
-      <div style="font-size:11.5px;color:var(--mut);margin-top:8px">各日の最高値を色付き。合計は日別の足し上げで、累積と一致します</div>
     </div>`;
 
   // 30人を折れ線で重ねると読めないので、1人1行の横向き積み上げ棒にする。
@@ -1192,8 +1194,8 @@ async function loadKoranAll(){
   mkChart('#kAll','bar', d.rows.map(r=>r.name),
     d.days.map((x,i)=>({label:x.label, backgroundColor:RAMP[i%RAMP.length], borderWidth:0,
       data:d.rows.map(r=>r.days[x.day_of]??0)})),
-    {indexAxis:'y', refLines:[{v:b2,color:'#D85A30',label:'英雄(2000位)'},
-                              {v:b1,color:'#1D9E75',label:'10万位'}],
+    {indexAxis:'y', refLines:[{v:b2,color:'#C0431C',label:'英雄(2000位)'},
+                              {v:b1,color:'#14805C',label:'10万位'}],
      scales:{x:{stacked:true,grid:{color:'rgba(28,39,51,.05)',drawTicks:false},border:{display:false},
                 ticks:{color:'#68707a',font:{size:10},maxTicksLimit:5}},
              y:{stacked:true,grid:{display:false},border:{color:'rgba(28,39,51,.10)'},

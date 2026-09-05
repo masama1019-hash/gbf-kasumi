@@ -1246,6 +1246,41 @@ def find_user_sweep(raid, date, time_, uid, hint=1, chunk=24):
     return None
 
 
+def _slim_uhourly(d):
+    """時刻毎の一括取得は1MB近い。必要な4項目だけ残してキャッシュに置く"""
+    return {"users": [{"user_id": u.get("user_id"),
+                       "points": [{"day": p.get("day"), "time": p.get("time"),
+                                   "point": p.get("point"), "rank": p.get("rank")}
+                                  for p in (u.get("points") or [])]}
+                      for u in (d.get("users") or [])]}
+
+
+def user_hourly_points(raid, uid):
+    """本人の時刻毎(累積・順位)を {日付: {時刻: (億, 順位)}} で返す。
+
+    users/borders は user_ids に複数IDを渡せて、指定した人全員の時刻毎が
+    1リクエストで返る。近傍探索(find_user)は1人で20〜60秒かかるが、こちらは数秒。
+    ⚠️ 団員なら30名まとめて1本のURLにする。誰か1人を取れば全員ぶんが温まり、
+       他の団員の検索もキャッシュ命中で即返る。
+    ⚠️ gbfdataが個人の時刻毎を持つのは直近2回ぶん。古い回はNoneを返すので
+       呼び出し側は従来の探索へ落とすこと"""
+    ids = [u for _, u in MEMBERS]
+    if uid not in ids:
+        ids = [uid]
+    url = (f"{GBF}/users/borders?raid_number={raid}&ranks=2000"
+           f"&user_ids={','.join(str(i) for i in ids)}")
+    d = get(url, ttl=180, slim=_slim_uhourly)
+    for u in (d or {}).get("users") or []:
+        if u.get("user_id") == uid:
+            out = {}
+            for pt in u.get("points") or []:
+                if pt.get("point") is not None:
+                    out.setdefault(pt["day"], {})[pt["time"]] = (
+                        round(pt["point"] / 1e8, 1), pt.get("rank"))
+            return out or None
+    return None
+
+
 def koran_hourly(raid, date, uid, hint=3000, hint_start=None, day_of=None,
                  base_cum=None, prev_date=None):
     """指定日の 本人 と 2000位/100000位 の時刻毎累積・時速(億)。
@@ -1275,6 +1310,14 @@ def koran_hourly(raid, date, uid, hint=3000, hint_start=None, day_of=None,
                 "b100k": {"cum": {}, "speed": {}}}
     n = len(times)
     p_cum, p_rank, found = {}, {}, {}      # found: 時刻index -> 実測順位
+
+    # まず一括取得を試す。埋まった時刻は下の近傍探索が丸ごと空振りして飛ぶ
+    direct = user_hourly_points(raid, uid)
+    for i, t in enumerate(times):
+        got = (direct or {}).get(date, {}).get(t)
+        if got:
+            p_cum[t], p_rank[t] = got
+            found[i] = got[1]
 
     def lerp_hint(i):
         """i番目の時刻の順位を見積もる。既知アンカーがあれば前後から補間、
@@ -1316,8 +1359,9 @@ def koran_hourly(raid, date, uid, hint=3000, hint_start=None, day_of=None,
                 p_cum[times[i]], p_rank[times[i]] = r[0], r[1]
 
     anchors = [i for i in sorted({0, n - 1} | {round(n * k / 4) for k in (1, 2, 3)})
-               if 0 <= i < n]
-    take(scan(anchors, 14))                        # ①アンカーは広めに
+               if 0 <= i < n and i not in found]
+    if anchors:
+        take(scan(anchors, 14))                    # ①アンカーは広めに
     # 履歴由来のhintが当てにならない人(1日で数万位動く中位以下)は、近傍探索を
     # 何周しても当たらずページ解析だけが積み上がる。当たらないと分かった時点で
     # 総なめに切り替える(実測: 無駄な解析356ページ→大幅減)
@@ -1642,15 +1686,17 @@ def _prewarm_once(m, raid, members):
     """先読み1回分。members に渡した団員の履歴だけ取得する"""
     oh = guild_histories(OURS_GID)                     # ①自団の日別実績
     get(f"{GBF}/users/borders?raid_number={raid}", ttl=900)   # ②英雄(2000位)/10万位ボーダー(全期間の時刻毎を含む)
-    # ③個ランの時刻毎(1H)は走査量が多く開くと待たされるので、本人ぶんを最優先で温める
-    #   (全員ぶん毎時やるとgbfdataへの負荷が高いので本人に限定)
+    # ③団員全員の時刻毎(累積・順位)を1リクエストで温める。user_ids に30名まとめて
+    #   渡すので、これ1本で誰の個ランを開いてもキャッシュ命中で返る
+    user_hourly_points(raid, OURS_UID)
+    # ④一括取得が無い回(直近2回より前)に備えて、本人ぶんは従来の探索でも温めておく
     _prewarm_koran_day(m, raid, OURS_UID)
     for r in range(raid - 1, raid - 7, -1):            # 直近6回の着地(過去回は確定値なので長期キャッシュ)
         if r > 0:
             get(f"{GBF}/users/borders?raid_number={r}", ttl=21600)
-    for _, uid in members:                             # ④団員の個人履歴
+    for _, uid in members:                             # ⑤団員の個人履歴
         user_histories(uid)
-    # ⑤開催中は当日の推移も(本戦=自団の時刻毎 / 予選=300位ボーダーと自団)
+    # ⑥開催中は当日の推移も(本戦=自団の時刻毎 / 予選=300位ボーダーと自団)
     today = gbf_today()
     do = {sc["day"]: sc["day_of"] for sc in m["schedules"]}.get(today)
     if do and do >= 4:

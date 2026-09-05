@@ -122,12 +122,14 @@
      .sp を先に書かないと同じ詳細度で .mx の色が打ち消される */
   .sp { color:var(--mut); }
   .mx { color:var(--red); font-weight:700; background:#fdf1e7; border-radius:4px; }
-  /* 日別のTOP3。1位は塗りつぶし＋白文字、2位・3位は薄い順に。
+  /* 日別のTOP5。1位は塗りつぶし＋白文字、以下は薄くしていく。
      .sp より後に書かないと文字色が打ち消される。
-     実測: 段どうしのΔEは33/31、3位と無色の差は21。文字と背景のコントラストは4.8以上 */
+     実測: 段どうしのΔEは16〜22、5位と無色の差は11.4、文字と背景のコントラストは4.8以上 */
   .t1 { color:#fff;    font-weight:700; background:#B85515; border-radius:4px; }
-  .t2 { color:#5C2408; font-weight:700; background:#F0A96B; border-radius:4px; }
-  .t3 { color:#6B2E0E; font-weight:600; background:#FBDCC0; border-radius:4px; }
+  .t2 { color:#401804; font-weight:700; background:#E08141; border-radius:4px; }
+  .t3 { color:#5C2408; font-weight:600; background:#F0AC72; border-radius:4px; }
+  .t4 { color:#66290C; font-weight:600; background:#F8D0AE; border-radius:4px; }
+  .t5 { color:#733312; font-weight:600; background:#FDECDD; border-radius:4px; }
   .load { color:var(--mut); font-size:13px; padding:20px; text-align:center; }
   .hide { display:none; }
   .badge { display:inline-block; padding:3px 10px; border-radius:20px; font-size:12px; font-weight:600; }
@@ -1110,12 +1112,11 @@ async function loadKoranAll(){
   const cell=(v,lv)=>v==null||lv==null?'<td>—</td>'
     :(v>=lv?`<td class="good">到達 +${f1(v-lv)}</td>`:`<td>あと ${f1(lv-v)}</td>`);
   const dsum=r=>Object.values(r.days).reduce((a,b)=>a+b,0);
-  // 日ごとのTOP3。同値は同じ順位にしたいので、値の重複を潰してから上位3つを取る
-  const dayTop={};
+  // 日ごとのTOP5。同値は同じ順位にしたいので、値の重複を潰してから上位5つを取る
+  const TOPN=5, dayTop={};
   d.days.forEach(x=>{
-    const vs=[...new Set(d.rows.map(r=>r.days[x.day_of]).filter(v=>v!=null&&v>0))]
-      .sort((a,b)=>b-a).slice(0,3);
-    dayTop[x.day_of]=vs;
+    dayTop[x.day_of]=[...new Set(d.rows.map(r=>r.days[x.day_of]).filter(v=>v!=null&&v>0))]
+      .sort((a,b)=>b-a).slice(0,TOPN);
   });
   const topCls=(v,do_)=>{ const i=(dayTop[do_]||[]).indexOf(v); return i<0?'sp':'t'+(i+1); };
 

@@ -467,8 +467,8 @@ def battle_advice(cur_do, win, o_pat=None, p_pat=None, lead=None, hk=None, proj_
         if win >= 85 and not risk:
             return {"label": "勝勢", "tone": "good",
                     "text": f"{note}勝ちが見えました。本戦4日目のマッチングは大枠で決まるため、"
-                            f"ここを抑えても翌日の相手は変わりません。走って構いませんが、"
-                            f"余裕があれば体力・日課消化・肉を最終日に残しておくと楽です"}
+                            f"ここを抑えても翌日の相手は運次第になります。"
+                            f"最終日走れる方は体力温存とムーブ調整をしていきましょう"}
         if win >= 85 and risk:
             return {"label": "リード維持", "tone": "mid",
                     "text": f"{note}相手の伸びしろが残っています。振り切るまでは維持しましょう"}

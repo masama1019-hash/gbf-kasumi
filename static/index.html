@@ -594,7 +594,9 @@ async function loadYosen(){
     </div>
     ${pvNote}
     <div class="card"><h2>累積貢献度（億）${pvTag}</h2><div class="chartbox"><canvas id="yCum"></canvas></div></div>
-    <div class="card"><h2>時速（億/h）${pvTag}</h2><div class="chartbox"><canvas id="ySpd"></canvas></div></div>
+    <div class="card"><h2>時速（億/h）— 棒=霞桜団 / 線=300位ボーダー</h2><div class="chartbox"><canvas id="ySpd"></canvas></div></div>
+    <div class="card"><h2>時速の差（億/h）— 霞桜団 − 300位</h2><div class="chartbox"><canvas id="ySpdD"></canvas></div>
+      <div style="font-size:11.5px;color:var(--mut);margin-top:8px">上に出た時間はボーダーを引き離し、下に出た時間は詰められています</div></div>
     <div class="card"><h2>予選推移（数値・億）</h2><div class="tw"><table><tr><th>時刻</th><th>霞桜団</th><th>順位</th><th>時速</th><th>300位</th><th>時速</th><th>差</th>${p?'<th>前回300位</th><th>前回比</th>':''}</tr>${
       K.map((k,i)=>{const df=(oc[i]!=null&&bc[i]!=null)?oc[i]-bc[i]:null; const bd=(bc[i]!=null&&pb[i]!=null)?bc[i]-pb[i]:null;
         return `<tr><td>${L[i]}</td><td>${f1(oc[i])}</td><td style="color:var(--mut)">${orank[i]?orank[i]+'位':'—'}</td><td class="sp${mxCls(os[i],mxO)}">${f1(os[i])}</td><td>${f1(bc[i])}</td><td class="sp${mxCls(bs[i],mxB)}">${f1(bs[i])}</td><td class="${df!=null?(df>=0?'good':'bad'):''}">${df!=null?(df>0?'+':'')+df.toFixed(1):'—'}</td>${p?`<td style="color:var(--mut)">${f1(pb[i])}</td><td class="${bd!=null?(bd>0?'bad':'good'):''}">${bd!=null?(bd>0?'+':'')+bd.toFixed(1):'—'}</td>`:''}</tr>`;}).join('')
@@ -607,11 +609,30 @@ async function loadYosen(){
     ...((p&&!pThin)?[{label:'前回 霞桜団',data:pcum('ours'),borderColor:'#378ADD',borderDash:[4,3],tension:.35,pointRadius:0,borderWidth:1.2,spanGaps:true},
          {label:'前回 300位',data:pcum('border'),borderColor:'#D85A30',borderDash:[4,3],tension:.35,pointRadius:0,borderWidth:1.2,spanGaps:true}]:[]),
     ...(projFinal!=null?[{label:'300位 着地予想',data:L.map(()=>projFinal),borderColor:'#993C1D',borderDash:[2,3],tension:0,pointRadius:0,borderWidth:1.2}]:[])]);
-  mkChart('#ySpd','line',L,[
-    {label:'霞桜団',data:os,borderColor:'#378ADD',tension:.35,pointRadius:0,borderWidth:2,spanGaps:true},
-    {label:'300位',data:bs,borderColor:'#D85A30',tension:.35,pointRadius:0,borderWidth:2,spanGaps:true},
-    ...((p&&!pThin)?[{label:'前回 霞桜団',data:pspd('ours'),borderColor:'#378ADD',borderDash:[4,3],tension:.35,pointRadius:0,borderWidth:1.2,spanGaps:true},
-         {label:'前回 300位',data:pspd('border'),borderColor:'#D85A30',borderDash:[4,3],tension:.35,pointRadius:0,borderWidth:1.2,spanGaps:true}]:[])]);
+  // 時速は「その1時間にどれだけ稼いだか」という量なので、自団は棒で置く。
+  // ⚠️ 平滑化(tension)は使わない。実際には無い緩やかな山ができ、24時→1時の落ち込みも鈍る。
+  // 前回は grouped:false で同じ位置に重ね、太い薄棒として後ろに敷く
+  const pOs=pspd('ours'), pBs=pspd('border');
+  mkChart('#ySpd','bar',L,[
+    ...((p&&!pThin)?[{label:'前回 霞桜団',data:pOs,backgroundColor:'#AEBBC766',keyColor:'#AEBBC7',
+                      grouped:false,barPercentage:.98,categoryPercentage:.9,borderRadius:2,order:1}]:[]),
+    {label:'霞桜団',data:os,backgroundColor:'#378ADD',grouped:false,
+     barPercentage:.62,categoryPercentage:.9,borderRadius:2,order:2},
+    {label:'300位',type:'line',data:bs,borderColor:'#D85A30',tension:0,pointRadius:0,
+     borderWidth:2.2,spanGaps:true,order:3},
+    ...((p&&!pThin)?[{label:'前回 300位',type:'line',data:pBs,borderColor:'#D85A30',borderDash:[4,3],
+                      tension:0,pointRadius:0,borderWidth:1.3,spanGaps:true,order:4}]:[])]);
+
+  // 差分。系列が1本になるので交差が起きない。上下で色を変えるため、正と負を別の系列にする
+  const dif=K.map((k,i)=>(oc[i]!=null&&bc[i]!=null&&os[i]!=null&&bs[i]!=null)?Math.round((os[i]-bs[i])*10)/10:null);
+  const pdif=(p&&!pThin)?K.map((_,i)=>(pOs[i]!=null&&pBs[i]!=null)?Math.round((pOs[i]-pBs[i])*10)/10:null):null;
+  mkChart('#ySpdD','bar',L,[
+    {label:'霞桜団が上回った時間',data:dif.map(v=>v!=null&&v>=0?v:null),backgroundColor:'#378ADD',
+     grouped:false,barPercentage:.86,categoryPercentage:.9,borderRadius:2,order:1},
+    {label:'300位が上回った時間',data:dif.map(v=>v!=null&&v<0?v:null),backgroundColor:'#D85A30',
+     grouped:false,barPercentage:.86,categoryPercentage:.9,borderRadius:2,order:2},
+    ...(pdif?[{label:'前回の差',type:'line',data:pdif,borderColor:'#8B96A2',tension:0,pointRadius:0,
+               borderWidth:1.5,spanGaps:true,order:3}]:[])]);
 }
 // 撤退は団の意思決定なので自動判定できず、団員全員の画面に反映させたい。
 // 状態はサーバが持ち、切り替えはパスワードを知っている団長だけができる。

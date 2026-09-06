@@ -299,6 +299,26 @@ function drawKeys(canvas,datasets){
 // 終端の札(endLabelPlugin)は点の「左」に描くので、右余白は終端の点(半径3.5)が
 // 枠に接しない分だけでよい。以前は札の幅ぶん80〜104px空けていたが、全て死に余白だった
 const padR=()=>window.innerWidth<620?10:16;
+// 案C: 2つの主体を1枚に混ぜず、上下2枚に分ける。各枠は「今回 vs 前回」の2本だけ。
+// ⚠️ 2枚の縦軸は必ず揃える。枠ごとに自動スケールすると、値の小さい側が枠いっぱいに
+//    伸びて「同じくらい出ている」ように見えてしまう
+function splitSpeed(specs){
+  const all=specs.flatMap(sp=>[...(sp.cur||[]),...(sp.prev||[])]).filter(v=>v!=null&&!isNaN(v));
+  const top=all.length?Math.max(...all):1;
+  specs.forEach(sp=>{
+    mkChart(sp.id,'bar',sp.labels,[
+      ...(sp.prev&&sp.prev.some(v=>v!=null)
+        ? [{label:sp.prevLabel||'前回',data:sp.prev,backgroundColor:'#AEBBC766',keyColor:'#AEBBC7',
+            grouped:false,barPercentage:.98,categoryPercentage:.92,borderRadius:2}] : []),
+      {label:sp.curLabel,data:sp.cur,backgroundColor:sp.color,grouped:false,
+       barPercentage:.62,categoryPercentage:.92,borderRadius:2}],
+      {scales:{x:{grid:{display:false},border:{color:'rgba(28,39,51,.10)'},
+                  ticks:{color:'#68707a',font:{size:10},maxRotation:0,autoSkipPadding:16}},
+               y:{suggestedMax:top,grid:{color:'rgba(28,39,51,.038)',drawTicks:false},
+                  border:{display:false},beginAtZero:true,
+                  ticks:{color:'#68707a',font:{size:10},padding:7,maxTicksLimit:4}}}});
+  });
+}
 function mkChart(id,type,labels,datasets,extra={}){
   const el=$(id); if(!el) return;      // 描画先が消えていたら何もしない
   if(charts[id]) charts[id].destroy();
@@ -594,9 +614,12 @@ async function loadYosen(){
     </div>
     ${pvNote}
     <div class="card"><h2>累積貢献度（億）${pvTag}</h2><div class="chartbox"><canvas id="yCum"></canvas></div></div>
-    <div class="card"><h2>時速（億/h）— 棒=霞桜団 / 線=300位ボーダー</h2><div class="chartbox"><canvas id="ySpd"></canvas></div></div>
-    <div class="card"><h2>時速の差（億/h）— 霞桜団 − 300位</h2><div class="chartbox"><canvas id="ySpdD"></canvas></div>
-      <div style="font-size:11.5px;color:var(--mut);margin-top:8px">上に出た時間はボーダーを引き離し、下に出た時間は詰められています</div></div>
+    <div class="card"><h2>時速（億/h）— 濃い=今回(第${d.raid}回) / 薄い=前回(第${d.raid-1}回)</h2>
+      <div class="subcap">霞桜団</div>
+      <div class="chartbox" style="height:180px"><canvas id="ySpd"></canvas></div>
+      <div style="height:14px"></div>
+      <div class="subcap">300位ボーダー</div>
+      <div class="chartbox" style="height:180px"><canvas id="ySpdB"></canvas></div></div>
     <div class="card"><h2>予選推移（数値・億）</h2><div class="tw"><table><tr><th>時刻</th><th>霞桜団</th><th>順位</th><th>時速</th><th>300位</th><th>時速</th><th>差</th>${p?'<th>前回300位</th><th>前回比</th>':''}</tr>${
       K.map((k,i)=>{const df=(oc[i]!=null&&bc[i]!=null)?oc[i]-bc[i]:null; const bd=(bc[i]!=null&&pb[i]!=null)?bc[i]-pb[i]:null;
         return `<tr><td>${L[i]}</td><td>${f1(oc[i])}</td><td style="color:var(--mut)">${orank[i]?orank[i]+'位':'—'}</td><td class="sp${mxCls(os[i],mxO)}">${f1(os[i])}</td><td>${f1(bc[i])}</td><td class="sp${mxCls(bs[i],mxB)}">${f1(bs[i])}</td><td class="${df!=null?(df>=0?'good':'bad'):''}">${df!=null?(df>0?'+':'')+df.toFixed(1):'—'}</td>${p?`<td style="color:var(--mut)">${f1(pb[i])}</td><td class="${bd!=null?(bd>0?'bad':'good'):''}">${bd!=null?(bd>0?'+':'')+bd.toFixed(1):'—'}</td>`:''}</tr>`;}).join('')
@@ -612,20 +635,12 @@ async function loadYosen(){
   // 時速は「その1時間にどれだけ稼いだか」という量なので、自団は棒で置く。
   // ⚠️ 平滑化(tension)は使わない。実際には無い緩やかな山ができ、24時→1時の落ち込みも鈍る。
   // 前回は grouped:false で同じ位置に重ね、太い薄棒として後ろに敷く
-  // 今回ぶんだけにする。前回との比較は上の累積グラフ・ストリップ・下の表が持っている
-  mkChart('#ySpd','bar',L,[
-    {label:'霞桜団',data:os,backgroundColor:'#378ADD',
-     barPercentage:.78,categoryPercentage:.92,borderRadius:2,order:1},
-    {label:'300位',type:'line',data:bs,borderColor:'#D85A30',tension:0,pointRadius:0,
-     borderWidth:2.2,spanGaps:true,order:2}]);
-
-  // 差分。上下で色を変えるため、正と負を別の系列にする
-  const dif=K.map((k,i)=>(os[i]!=null&&bs[i]!=null)?Math.round((os[i]-bs[i])*10)/10:null);
-  mkChart('#ySpdD','bar',L,[
-    {label:'霞桜団が上回った時間',data:dif.map(v=>v!=null&&v>=0?v:null),backgroundColor:'#378ADD',
-     grouped:false,barPercentage:.86,categoryPercentage:.92,borderRadius:2},
-    {label:'300位が上回った時間',data:dif.map(v=>v!=null&&v<0?v:null),backgroundColor:'#D85A30',
-     grouped:false,barPercentage:.86,categoryPercentage:.92,borderRadius:2}]);
+  const showPrev=!!(p&&!pThin);
+  splitSpeed([
+    {id:'#ySpd', labels:L, cur:os, prev:showPrev?pspd('ours'):null,
+     curLabel:'霞桜団（今回）', prevLabel:'霞桜団（前回）', color:'#378ADD'},
+    {id:'#ySpdB',labels:L, cur:bs, prev:showPrev?pspd('border'):null,
+     curLabel:'300位（今回）', prevLabel:'300位（前回）', color:'#D85A30'}]);
 }
 // 撤退は団の意思決定なので自動判定できず、団員全員の画面に反映させたい。
 // 状態はサーバが持ち、切り替えはパスワードを知っている団長だけができる。
@@ -751,6 +766,8 @@ async function loadLive(){
   // 相手団ページへのリンク
   const oppUrl=d.opp.gid?`https://game.granbluefantasy.jp/#guild/detail/${d.opp.gid}`:null;
   const oppName=d.opp.name||'相手未設定';
+  // 時速の枠に重ねる「前日」。過去日比較で複数日を取っていても、重ねるのは直近1日だけ
+  const pvDay=(d.past||[])[(d.past||[]).length-1], prevLbl=pvDay?pvDay.label:'';
   if(d.opp.gid) LAST_OPP={gid:d.opp.gid, name:d.opp.name||''};
   const oppNameHtml=oppUrl?`<a href="${oppUrl}" target="_blank" rel="noopener" style="color:var(--blue);text-decoration:none">${oppName} ↗</a>`:oppName;
   // 当日の最高時速。本戦は7時開始なので、最初のスナップショット(8時)も
@@ -802,7 +819,12 @@ async function loadLive(){
     </div>
     ${typeCards?`<div class="strip strip2">${typeCards}</div>`:''}
     <div class="card"><h2>当日貢献度${(d.past||[]).length?(d.past.length===1?' — 点線（前日貢献度）':' — 点線（過去日貢献度）'):''}</h2><div class="chartbox"><canvas id="cumC"></canvas></div></div>
-    <div class="card"><h2>時速（億/h）</h2><div class="chartbox"><canvas id="spdC"></canvas></div></div>
+    <div class="card"><h2>時速（億/h）${prevLbl?` — 濃い=${d.label} / 薄い=${prevLbl}`:''}</h2>
+      <div class="subcap">${d.ours.name}</div>
+      <div class="chartbox" style="height:180px"><canvas id="spdC"></canvas></div>
+      <div style="height:14px"></div>
+      <div class="subcap">${oppName}</div>
+      <div class="chartbox" style="height:180px"><canvas id="spdO"></canvas></div></div>
     ${(d.ref||[]).length?`<div class="card"><h2>参考情報</h2><div class="tw"><table><tr><th>日程</th><th>${d.ours.name}</th><th>順位</th><th>${d.opp.name||'相手'}</th><th>順位</th><th>差</th></tr>${
       d.ref.map(r=>{const has=r.ours!=null&&r.opp!=null; const df=has?r.ours-r.opp:null;
         return `<tr><td>${r.label}</td><td>${f1(r.ours)}</td><td style="color:var(--mut)">${r.ours_rank?r.ours_rank+'位':'—'}</td><td>${f1(r.opp)}</td><td style="color:var(--mut)">${r.opp_rank?r.opp_rank+'位':'—'}</td><td class="${df!=null?(df>=0?'good':'bad'):''}">${df!=null?(df>0?'+':'')+df.toFixed(1):'—'}</td></tr>`;}).join('')
@@ -835,10 +857,16 @@ async function loadLive(){
     {label:d.ours.name,data:oc,borderColor:'#378ADD',area:'3d',endLabel:true,tension:.35,pointRadius:0,borderWidth:2,spanGaps:true},
     {label:d.opp.name||'相手',data:pc,borderColor:'#D85A30',endLabel:true,tension:.35,pointRadius:0,borderWidth:2,spanGaps:true},
     ...pastSets('cum')]);
-  mkChart('#spdC','line',H,[
-    {label:d.ours.name,data:os,borderColor:'#378ADD',tension:.35,pointRadius:0,borderWidth:2,spanGaps:true},
-    {label:d.opp.name||'相手',data:ps,borderColor:'#D85A30',tension:.35,pointRadius:0,borderWidth:2,spanGaps:true},
-    ...pastSets('speed')]);
+  // 案C: 自団と相手を上下2枚に分ける。薄い棒は「前日」1本だけにする
+  // (過去日比較を全日にしても、時速の枠には直近の1日ぶんだけを重ねる)
+  const pv=pvDay;
+  splitSpeed([
+    {id:'#spdC', labels:H, cur:os,
+     prev:pv?d.hours.map(h=>pv.ours.speed[h]??null):null,
+     curLabel:`${d.ours.name}（${d.label}）`, prevLabel:`${d.ours.name}（${pv?pv.label:''}）`, color:'#378ADD'},
+    {id:'#spdO', labels:H, cur:ps,
+     prev:pv?d.hours.map(h=>pv.opp.speed[h]??null):null,
+     curLabel:`${oppName}（${d.label}）`, prevLabel:`${oppName}（${pv?pv.label:''}）`, color:'#D85A30'}]);
 }
 // gbfdataは毎時更新。毎時3分に取り直し、まだ新データが無ければ3分おきに再試行(最大5回)
 function scheduleAutoRefresh(){

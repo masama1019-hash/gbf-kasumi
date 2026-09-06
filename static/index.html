@@ -105,6 +105,8 @@
   .keys { display:flex; flex-wrap:wrap; gap:3px 14px; margin:0 0 7px; padding:0; list-style:none; }
   .keys li { display:flex; align-items:center; gap:6px; font-size:11.5px; color:var(--mut); }
   .kl { width:16px; height:3px; border-radius:2px; flex:none; }
+  /* 棒グラフの凡例は四角。線の見本だと棒と対応せず、濃い/薄いの違いも伝わらない */
+  .kl.sq { width:12px; height:12px; border-radius:3px; }
   .kl.dash { height:0; border-top:2px dashed currentColor; border-radius:0; }
   h2 { font-size:14px; color:var(--mut); font-weight:600; margin-bottom:8px; }
   table { width:100%; border-collapse:collapse; font-size:13px; }
@@ -291,9 +293,9 @@ function drawKeys(canvas,datasets){
   ul.innerHTML=datasets.map(ds=>{
     const c=ds.keyColor||ds.borderColor||ds.backgroundColor||'#888';
     const col=(typeof c==='string')?c:'#888';
-    return ds.borderDash
-      ? `<li style="color:${col}"><span class="kl dash"></span><span style="color:var(--mut)">${ds.label}</span></li>`
-      : `<li><span class="kl" style="background:${col}"></span>${ds.label}</li>`;
+    if(ds.borderDash)
+      return `<li style="color:${col}"><span class="kl dash"></span><span style="color:var(--mut)">${ds.label}</span></li>`;
+    return `<li><span class="kl${ds._sq?' sq':''}" style="background:${col}"></span>${ds.label}</li>`;
   }).join('');
 }
 // 終端の札(endLabelPlugin)は点の「左」に描くので、右余白は終端の点(半径3.5)が
@@ -324,6 +326,7 @@ function mkChart(id,type,labels,datasets,extra={}){
   if(charts[id]) charts[id].destroy();
   // ds.area='3d' のように指定された系列だけ面を塗る(累積グラフの主役のみ)
   datasets.forEach(ds=>{
+    ds._sq=((ds.type||type)==='bar');   // 凡例の見本を四角にするか(棒なら四角)
     if(ds.area){ ds.keyColor=ds.borderColor; ds.backgroundColor=areaGrad(ds.borderColor,ds.area); ds.fill=true; }
     else if(ds.bar){ ds.keyColor=ds.bar; ds.backgroundColor=barGrad(ds.bar); }
   });
@@ -614,7 +617,7 @@ async function loadYosen(){
     </div>
     ${pvNote}
     <div class="card"><h2>累積貢献度（億）${pvTag}</h2><div class="chartbox"><canvas id="yCum"></canvas></div></div>
-    <div class="card"><h2>時速（億/h）— 濃い=今回(第${d.raid}回) / 薄い=前回(第${d.raid-1}回)</h2>
+    <div class="card"><h2>時速（億/h）</h2>
       <div class="subcap">霞桜団</div>
       <div class="chartbox" style="height:180px"><canvas id="ySpd"></canvas></div>
       <div style="height:14px"></div>
@@ -819,7 +822,7 @@ async function loadLive(){
     </div>
     ${typeCards?`<div class="strip strip2">${typeCards}</div>`:''}
     <div class="card"><h2>当日貢献度${(d.past||[]).length?(d.past.length===1?' — 点線（前日貢献度）':' — 点線（過去日貢献度）'):''}</h2><div class="chartbox"><canvas id="cumC"></canvas></div></div>
-    <div class="card"><h2>時速（億/h）${prevLbl?` — 濃い=${d.label} / 薄い=${prevLbl}`:''}</h2>
+    <div class="card"><h2>時速（億/h）</h2>
       <div class="subcap">${d.ours.name}</div>
       <div class="chartbox" style="height:180px"><canvas id="spdC"></canvas></div>
       <div style="height:14px"></div>

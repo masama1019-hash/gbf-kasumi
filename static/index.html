@@ -465,6 +465,10 @@ function chatLineYosen(t,o,b,os_,bs_,rank,withSpeed){
   return `${t}時点でこちら${f1(o)}億(${f1(os_)}億)　300ボーダー${f1(b)}億(${f1(bs_)}億)　貢献差${f1(d)}億(${f1(os_-bs_)}億)${rk}`;
 }
 // 予選の参考情報: 過去6回の300位ボーダー(属性・開催日・前回比つき)
+// 差のセル。累積差・時速差とも同じ書式で出す。
+// 「悪い」は赤にしない(相手団の色と紛れる)ので、bad は濃いインク＋▼で示す
+const diffTd=v=>v==null?'<td>—</td>'
+  :`<td class="${v>=0?'good':'bad'}">${v>0?'+':''}${v.toFixed(1)}</td>`;
 function yosenBorderHistHtml(hist,curBorder){
   if(!hist||!hist.length) return '';
   const mx=Math.max(...hist.map(x=>x.border));
@@ -623,9 +627,10 @@ async function loadYosen(){
       <div style="height:14px"></div>
       <div class="subcap">300位ボーダー</div>
       <div class="chartbox" style="height:180px"><canvas id="ySpdB"></canvas></div></div>
-    <div class="card"><h2>予選推移（数値・億）</h2><div class="tw"><table><tr><th>時刻</th><th>霞桜団</th><th>順位</th><th>時速</th><th>300位</th><th>時速</th><th>差</th>${p?'<th>前回300位</th><th>前回比</th>':''}</tr>${
+    <div class="card"><h2>予選推移（数値・億）</h2><div class="tw"><table><tr><th>時刻</th><th>霞桜団</th><th>順位</th><th>時速</th><th>300位</th><th>時速</th><th>時速差</th><th>累積差</th>${p?'<th>前回300位</th><th>前回比</th>':''}</tr>${
       K.map((k,i)=>{const df=(oc[i]!=null&&bc[i]!=null)?oc[i]-bc[i]:null; const bd=(bc[i]!=null&&pb[i]!=null)?bc[i]-pb[i]:null;
-        return `<tr><td>${L[i]}</td><td>${f1(oc[i])}</td><td style="color:var(--mut)">${orank[i]?orank[i]+'位':'—'}</td><td class="sp${mxCls(os[i],mxO)}">${f1(os[i])}</td><td>${f1(bc[i])}</td><td class="sp${mxCls(bs[i],mxB)}">${f1(bs[i])}</td><td class="${df!=null?(df>=0?'good':'bad'):''}">${df!=null?(df>0?'+':'')+df.toFixed(1):'—'}</td>${p?`<td style="color:var(--mut)">${f1(pb[i])}</td><td class="${bd!=null?(bd>0?'bad':'good'):''}">${bd!=null?(bd>0?'+':'')+bd.toFixed(1):'—'}</td>`:''}</tr>`;}).join('')
+        const sd=(os[i]!=null&&bs[i]!=null)?Math.round((os[i]-bs[i])*10)/10:null;   // その1時間の貢献差
+        return `<tr><td>${L[i]}</td><td>${f1(oc[i])}</td><td style="color:var(--mut)">${orank[i]?orank[i]+'位':'—'}</td><td class="sp${mxCls(os[i],mxO)}">${f1(os[i])}</td><td>${f1(bc[i])}</td><td class="sp${mxCls(bs[i],mxB)}">${f1(bs[i])}</td>${diffTd(sd)}${diffTd(df)}${p?`<td style="color:var(--mut)">${f1(pb[i])}</td><td class="${bd!=null?(bd>0?'bad':'good'):''}">${bd!=null?(bd>0?'+':'')+bd.toFixed(1):'—'}</td>`:''}</tr>`;}).join('')
     }</table></div></div>
     ${yosenBorderHistHtml(d.border_history,lb)}
     ${chatNoticeYosenHtml(L,oc,bc,os,bs,orank)}`;
@@ -834,18 +839,20 @@ async function loadLive(){
     }</table></div></div>`:''}
     ${(d.rank_history||[]).some(r=>r.opp!=null)?`<div class="card"><h2>総合順位の推移（直近3開催 予選〜本戦）</h2>${rankHeatHtml(d.rank_history,d.ours.name,d.opp.name||'相手')}</div>`:''}
     ${(oc.some(v=>v!=null)||pc.some(v=>v!=null))?`<div class="card"><h2>${d.label}の推移（数値・億）— 当日</h2><div class="tw"><table>
-      <tr><th>時刻</th><th>${d.ours.name}</th><th>時速</th><th>${oppName}</th><th>時速</th><th>差</th></tr>${
+      <tr><th>時刻</th><th>${d.ours.name}</th><th>時速</th><th>${oppName}</th><th>時速</th><th>時速差</th><th>累積差</th></tr>${
       H.map((h,i)=>{const o=oc[i],p=pc[i];
         if(o==null&&p==null) return '';
         const df=(o!=null&&p!=null)?o-p:null;
-        return `<tr><td>${h}時</td><td>${f1(o)}</td><td class="sp${mxCls(os[i],mxOs)}">${f1(os[i])}</td><td>${f1(p)}</td><td class="sp${mxCls(ps[i],mxPs)}">${f1(ps[i])}</td><td class="${df!=null?(df>=0?'good':'bad'):''}">${df!=null?(df>0?'+':'')+df.toFixed(1):'—'}</td></tr>`;
+        const sd=(os[i]!=null&&ps[i]!=null)?Math.round((os[i]-ps[i])*10)/10:null;   // その1時間の貢献差
+        return `<tr><td>${h}時</td><td>${f1(o)}</td><td class="sp${mxCls(os[i],mxOs)}">${f1(os[i])}</td><td>${f1(p)}</td><td class="sp${mxCls(ps[i],mxPs)}">${f1(ps[i])}</td>${diffTd(sd)}${diffTd(df)}</tr>`;
       }).join('')}</table></div></div>`:''}
     ${prev?`<div class="card"><h2>${prev.label}の推移（数値・億）— 前日</h2><div class="tw"><table>
-      <tr><th>時刻</th><th>${d.ours.name}</th><th>時速</th><th>${oppName}</th><th>時速</th><th>差</th></tr>${
+      <tr><th>時刻</th><th>${d.ours.name}</th><th>時速</th><th>${oppName}</th><th>時速</th><th>時速差</th><th>累積差</th></tr>${
       d.hours.filter(h=>prev.ours.cum[h]!=null||prev.opp.cum[h]!=null).map(h=>{
         const o=prev.ours.cum[h],s=prev.ours.speed[h],p=prev.opp.cum[h],q=prev.opp.speed[h];
         const df=(o!=null&&p!=null)?o-p:null;
-        return `<tr><td>${hLbl(h)}時</td><td>${f1(o)}</td><td class="sp${mxCls(s,mxPo)}">${f1(s)}</td><td>${f1(p)}</td><td class="sp${mxCls(q,mxPp)}">${f1(q)}</td><td class="${df!=null?(df>=0?'good':'bad'):''}">${df!=null?(df>0?'+':'')+df.toFixed(1):'—'}</td></tr>`;
+        const sd=(s!=null&&q!=null)?Math.round((s-q)*10)/10:null;
+        return `<tr><td>${hLbl(h)}時</td><td>${f1(o)}</td><td class="sp${mxCls(s,mxPo)}">${f1(s)}</td><td>${f1(p)}</td><td class="sp${mxCls(q,mxPp)}">${f1(q)}</td>${diffTd(sd)}${diffTd(df)}</tr>`;
       }).join('')}</table></div></div>`:''}
     ${chatNoticeHtml(H,oc,pc,os,ps)}`;
   const pastSets=(key)=>(d.past||[]).flatMap(pd=>{

@@ -309,14 +309,15 @@ function splitSpeed(specs){
   const top=all.length?Math.max(...all):1;
   specs.forEach(sp=>{
     mkChart(sp.id,'bar',sp.labels,[
-      // 前回は同じ色の25%。濃い棒との差ΔEは約30あり、完全に背景側へ退く。
-      // 先に置くので裏(grouped:false のとき、後の系列が上に描かれる)
+      // 今回は棒。これが主役
+      {label:sp.curLabel,data:sp.cur,backgroundColor:sp.color,
+       barPercentage:.8,categoryPercentage:.92,borderRadius:2,order:1},
+      // 前日(前回)は線。棒と線で視覚の使い分けが違うので重ならず、棒の高さを邪魔しない。
+      // ⚠️ 線は濃いインクにすること。同系色の濃い線だと棒の上でコントラスト2.1〜2.4しか
+      //    出ず埋もれる。#2B3440 なら白背景12.6・青の棒の上3.5・赤の棒の上3.3(実測)
       ...(sp.prev&&sp.prev.some(v=>v!=null)
-        ? [{label:sp.prevLabel||'前回',data:sp.prev,backgroundColor:sp.color+'40',
-            grouped:false,barPercentage:1,categoryPercentage:.92,borderRadius:2}] : []),
-      // 今回は太く不透明に。これが主役
-      {label:sp.curLabel,data:sp.cur,backgroundColor:sp.color,grouped:false,
-       barPercentage:.8,categoryPercentage:.92,borderRadius:2}],
+        ? [{label:sp.prevLabel||'前回',type:'line',data:sp.prev,borderColor:'#2B3440',
+            borderDash:[4,3],tension:0,pointRadius:0,borderWidth:1.6,spanGaps:true,order:2}] : [])],
       {scales:{x:{grid:{display:false},border:{color:'rgba(28,39,51,.10)'},
                   ticks:{color:'#68707a',font:{size:10},maxRotation:0,autoSkipPadding:16}},
                y:{suggestedMax:top,grid:{color:'rgba(28,39,51,.038)',drawTicks:false},

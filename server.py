@@ -380,110 +380,6 @@ def time_pattern(cum):
             "rest_ratio": {k: round(v / 100, 3) for k, v in pct.items()}}
 
 
-def remaining_share(pat, hk):
-    """パターン上、現時刻hk以降に残っている割合(0〜1)"""
-    if not pat:
-        return None
-    hh = int(hk.split(":")[0])
-    rest = 0.0
-    for name, lo, hi in BANDS:
-        if hi <= hh:
-            continue
-        share = pat["rest_ratio"][name]
-        if lo > hh:
-            rest += share                       # まるごと未消化
-        else:
-            rest += share * (hi - hh) / (hi - lo + 1)   # 帯の途中
-    return round(min(1.0, max(0.0, rest)), 3)
-
-
-# 翌日のマッチングが「前日の貢献度」で決まる日 = 本戦2日目・3日目。
-# つまり前日を抑える意味があるのは本戦1日目・2日目だけ。
-# 本戦4日目のマッチングは大枠で決まるので、3日目に抑えても翌日の相手は変わらない
-MATCH_BY_YESTERDAY = {5, 6}       # 本戦2日目・3日目のマッチングが前日貢献度ベース
-
-
-def retreat_advice(cur_do, note=""):
-    """団として撤退したあとの推奨アクション。
-    基準は「翌日のマッチングにどう効くか」。ただし効くのは本戦1・2日目だけで、
-    Day4のマッチングは大枠で決まるため3日目に抑えても翌日の相手は変わらない"""
-    if cur_do + 1 in MATCH_BY_YESTERDAY:          # 本戦1・2日目 → 翌日は前日貢献度ベース
-        nxt = cur_do - 2                          # 翌日の表示名(day_of 4=本戦1日目なので -3、その翌日で +1)
-        # 撤退後はフリーランなので抑制は強制しない。効くという事実だけ伝えて判断は各自に委ねる
-        return {"label": "撤退済み・自由行動", "tone": "good",
-                "text": f"{note}撤退済みです。日課消化や武器掘りなど自由行動でお願いします。"
-                        f"本戦{nxt}日目のマッチングは今日の貢献度で決まるので、"
-                        f"余裕のある方だけ抑えていただけると翌日の相手が楽になります"}
-    if cur_do == 6:                               # 本戦3日目 → 翌日(Day4)は大枠ベース
-        return {"label": "撤退済み・個人優先", "tone": "mid",
-                "text": f"{note}撤退済みです。本戦4日目のマッチングは大枠で決まるため、"
-                        f"今日抑えても翌日の相手は変わりません。抑える必要は無いので、"
-                        f"個人ランキングのために全力で走って構いません。"
-                        f"余裕のある方は体力温存で4日目に備えて休みましょう"}
-    return {"label": "撤退済み・個人優先", "tone": "mid",
-            "text": f"{note}撤退済みで、翌日のマッチングもありません。団としての勝敗は決したので、"
-                    f"個人ランキング優先で出し切って構いません。"
-                    f"無理のない範囲でお願いします"}
-
-
-def battle_advice(cur_do, win, o_pat=None, p_pat=None, lead=None, hk=None, proj_lead=None,
-                  retreated=False):
-    """本戦の日・勝敗見込み・両団の時間帯パターンから推奨アクション。
-    Day1/2は翌日マッチングが前日貢献度で決まるため、決着後は抑えるほど有利。
-    retreated=True(団長が画面で撤退を宣言した状態)なら勝敗の話はやめて撤退後の指針を出す"""
-    if not (4 <= cur_do <= 7):
-        return None
-    if retreated:
-        pn = f"相手は{p_pat['label']}。" if p_pat else ""
-        return retreat_advice(cur_do, pn)
-    # パターンの読み(相手が後半型なら、リードがあっても警戒が要る)。
-    # 型そのものは画面のストリップにバーで出るので、ここでは繰り返さず
-    # 「そこから何が言えるか」だけを書く
-    note = ""
-    risk = False
-    if p_pat:
-        rest = remaining_share(p_pat, hk) if hk else None
-        if rest is not None and p_pat["label"] in ("夜型", "終盤型") and rest >= 0.25:
-            risk = True
-            note += f"相手は{p_pat['label']}で、残り時間に約{round(rest * 100)}%が控えています。"
-    if proj_lead is not None:
-        note += f"このままの型なら最終差は約{proj_lead:+.0f}億の見込み。"
-
-    if cur_do in (4, 5):
-        nxt = f"本戦{cur_do - 2}日目"
-        if win >= 85 and not risk:
-            return {"label": "抑え推奨", "tone": "good",
-                    "text": f"{note}勝勢が固まりました。ここから流せば{nxt}のマッチングが楽になり、グラッジ・半汁・体力も温存できます"}
-        if win >= 85 and risk:
-            return {"label": "リード維持", "tone": "mid",
-                    "text": f"{note}数字上は優勢ですが、相手の追い上げ余地が大きい時間帯です。差が詰まらない程度に維持し、決着後に抑えると{nxt}が楽になります"}
-        if win <= 15:
-            return {"label": "撤退推奨", "tone": "good",
-                    "text": f"{note}逆転は困難。早めに切り上げれば{nxt}のマッチングが有利になり、戦力も残せます"}
-        return {"label": "継続", "tone": "mid", "text": f"{note}接戦。取れる試合なので押し切りましょう"}
-    if cur_do == 6:
-        # 本戦4日目のマッチングは大枠で決まるので、3日目を抑えても翌日の相手は変わらない。
-        # 抑制を促すのではなく「余裕があれば温存」に留める
-        if win >= 85 and not risk:
-            return {"label": "勝勢", "tone": "good",
-                    "text": f"{note}勝ちが見えました。本戦4日目のマッチングは大枠で決まるため、"
-                            f"ここを抑えても翌日の相手は運次第になります。"
-                            f"最終日走れる方は体力温存とムーブ調整をしていきましょう"}
-        if win >= 85 and risk:
-            return {"label": "リード維持", "tone": "mid",
-                    "text": f"{note}相手の伸びしろが残っています。振り切るまでは維持しましょう"}
-        if win <= 15:
-            return {"label": "撤退推奨", "tone": "good",
-                    "text": f"{note}逆転困難。撤退して個人ランキングに切り替える判断どころです。"
-                            f"本戦4日目のマッチングには影響しないので、抑える必要はありません"}
-        return {"label": "継続", "tone": "mid", "text": f"{note}接戦。ここは取りに行く場面"}
-    if win >= 85 and risk:
-        return {"label": "最終日・振り切る", "tone": "mid",
-                "text": f"{note}最終日。相手の追い上げ時間帯が残っているので、差を詰めさせないよう走り切りましょう"}
-    return {"label": "最終日・全力", "tone": "mid",
-            "text": f"{note}最終日。翌日を考える必要はないので、出せる分は出し切りましょう"}
-
-
 def _speeds(series):
     sp, prev = {}, 0
     for t in HOURS:
@@ -503,9 +399,6 @@ def api_live(q):
     day_label = {s["day"]: f"本戦{s['day_of'] - 3}日目" for s in battle}
     past_n = int(q.get("past", ["0"])[0])
     past_dates = [s["day"] for s in battle if s["day"] < date][-past_n:] if past_n else []
-    # 撤退したかは自動判定できない(団の意思決定)。団長が切り替えた値をサーバから読む
-    retreated = retreat_get(raid, date)
-
     opp_q = (q.get("opp", [None])[0] or "").strip()
     if not opp_q:
         return {"error": "相手団情報を入力してください（団名 または 団ID）"}
@@ -691,11 +584,7 @@ def api_live(q):
         forecast = {"win": win, "proj_ours": round(fo, 1), "proj_opp": round(fp, 1),
                     "policy": policy, "prior": round(prior * 100),
                     "basis": "前日推移ベース" if prev_day else "平均時速ベース",
-                    "ours_pattern": o_pat, "opp_pattern": p_pat,
-                    "retreated": retreated,
-                    "advice": battle_advice(cur_do, win, o_pat, p_pat,
-                                            round(o_now - p_now, 1), hk, round(fo - fp, 1),
-                                            retreated)}
+                    "ours_pattern": o_pat, "opp_pattern": p_pat}
 
     # 過去開催の総合順位推移(最終day_ofのrank)
     # 直近3開催の 予選→本戦1〜4 の総合順位推移
@@ -1767,32 +1656,31 @@ def prewarm_loop():
 
 
 # ---------------------------------------------------------------------------
-# 撤退フラグ
+# サーバが持つ共有状態(対戦相手・毎時ログ)
 #
-# 撤退は団の意思決定なので自動判定できず、かつ団員全員の画面に反映させたい。
-# そのため状態はサーバ側で持つ。切り替えは団長だけができるようパスワードで照合する。
+# 団員全員の画面に同じものを出したいので、状態はサーバ側で持つ。
+# 書き換えは団長だけができるようパスワードで照合する。
 #
 # Renderの無料プランは15分アイドルで停止し、書いたファイルは消える。
 # そこで永続化は既存のスプレッドシート(GAS)へ委ねる。
 # パスワードもGASのURLも公開リポジトリには置けないので、すべて環境変数から読む。
-# 未設定なら「誰も切り替えられない」側に倒す。
+# 未設定なら「誰も書き換えられない」側に倒す。
 #
 # キーは「開催回|日付」。本戦は1日1試合なので相手名は要らない。
 # キーに開催回が入るので保存先は1枚で全開催回を賄える。開催回ごとに作り直す
 # 記録用シートではなく、恒久的なシート(団員DBなど)を GAS_SSID に指定すること。
 # そうすれば次回以降この環境変数を触る必要がない。
+# 環境変数名 RETREAT_PW / GAS_SHEET="撤退" は撤退フラグ時代の名残。
+# Render側の設定を触らずに済むよう、名前はそのままにしてある。
 # ---------------------------------------------------------------------------
 RETREAT_PW = os.environ.get("RETREAT_PW", "")
 GAS_URL = os.environ.get("GAS_URL", "")
 GAS_SSID = os.environ.get("GAS_SSID", "")
 GAS_SHEET = os.environ.get("GAS_SHEET", "撤退")
-GAS_CELL = os.environ.get("GAS_CELL", "A1")
-GAS_CELL_OPP = os.environ.get("GAS_CELL_OPP", "A2")   # 対戦相手の保存先(同じタブの別セル)
-GAS_CELL_LOG = os.environ.get("GAS_CELL_LOG", "A3")   # 本戦の毎時ログ(同上)
-RETREAT_TTL = 60                      # スプレッドシートを読み直す間隔(秒)
-_retreat = {"at": 0.0, "map": None}   # map: {"83|2026-06-24": True}
-_retreat_lock = threading.Lock()
-# 対戦相手。本戦は1日1試合なのでキーは撤退フラグと同じ「開催回|日付」
+GAS_CELL_OPP = os.environ.get("GAS_CELL_OPP", "A2")   # 対戦相手の保存先
+GAS_CELL_LOG = os.environ.get("GAS_CELL_LOG", "A3")   # 本戦の毎時ログ(同じタブの別セル)
+GAS_TTL = 60                          # スプレッドシートを読み直す間隔(秒)
+# 対戦相手。本戦は1日1試合なのでキーは「開催回|日付」
 _opp = {"at": 0.0, "map": None}       # map: {"83|2026-06-24": {"gid":..,"name":..}}
 _opp_lock = threading.Lock()
 # 本戦の毎時ログ。gbfdataは毎時データを直近2回ぶんしか持たないので、
@@ -1815,61 +1703,11 @@ def _gas(payload, timeout=25):
         return None
 
 
-def retreat_map():
-    """撤退フラグ一覧。TTLの間はメモリのものを使う(毎リクエストGASを叩かない)"""
-    now = time.time()
-    with _retreat_lock:
-        if _retreat["map"] is not None and now - _retreat["at"] < RETREAT_TTL:
-            return _retreat["map"]
-    d = _gas({"read": f"{GAS_CELL}:{GAS_CELL}"})
-    m = {}
-    if d and d.get("status") == "ok":
-        raw = ((d.get("values") or [[""]])[0] or [""])[0]
-        if isinstance(raw, str) and raw.strip().startswith("{"):
-            try:
-                m = {k: bool(v) for k, v in json.loads(raw).items()}
-            except Exception:
-                m = {}
-    with _retreat_lock:
-        # GASが未設定/失敗のときは、既に持っている値を捨てない
-        if d is None and _retreat["map"] is not None:
-            return _retreat["map"]
-        _retreat["map"], _retreat["at"] = m, now
-        return m
-
-
-def retreat_get(raid, date):
-    return bool(retreat_map().get(f"{raid}|{date}"))
-
-
-def api_retreat(data):
-    """撤退フラグの切り替え(POST)。(本文, HTTPステータス) を返す"""
-    if not RETREAT_PW:
-        return {"error": "サーバにパスワードが設定されていません（環境変数 RETREAT_PW）"}, 503
-    # パスワードの比較は時間差が出ないようにする
-    if not hmac.compare_digest(str(data.get("pw", "")), RETREAT_PW):
-        return {"error": "パスワードが違います"}, 403
-    raid, date = data.get("raid"), data.get("date")
-    if not (raid and date):
-        return {"error": "開催回と日付が必要です"}, 400
-    key, on = f"{raid}|{date}", bool(data.get("on"))
-    m = dict(retreat_map())
-    if on:
-        m[key] = True
-    else:
-        m.pop(key, None)
-    saved = _gas({"cell": GAS_CELL, "value": json.dumps(m, ensure_ascii=False)})
-    with _retreat_lock:
-        _retreat["map"], _retreat["at"] = m, time.time()
-    return {"status": "ok", "on": on, "raid": raid, "date": date,
-            "persisted": bool(saved and saved.get("status") == "ok")}, 200
-
-
 def opp_map():
     """保存済みの対戦相手。撤退フラグと同じくTTLの間はメモリのものを使う"""
     now = time.time()
     with _opp_lock:
-        if _opp["map"] is not None and now - _opp["at"] < RETREAT_TTL:
+        if _opp["map"] is not None and now - _opp["at"] < GAS_TTL:
             return _opp["map"]
     d = _gas({"read": f"{GAS_CELL_OPP}:{GAS_CELL_OPP}"})
     m = {}
@@ -1897,7 +1735,7 @@ def log_map():
     """保存済みの毎時ログ。撤退・相手と同じくTTLの間はメモリのものを使う"""
     now = time.time()
     with _log_lock:
-        if _log["map"] is not None and now - _log["at"] < RETREAT_TTL:
+        if _log["map"] is not None and now - _log["at"] < GAS_TTL:
             return _log["map"]
     d = _gas({"read": f"{GAS_CELL_LOG}:{GAS_CELL_LOG}"})
     m = {}
@@ -2033,7 +1871,7 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    POSTS = {"/api/retreat": "retreat", "/api/opponent": "opponent"}
+    POSTS = {"/api/opponent": "opponent"}
 
     def do_POST(self):
         kind = self.POSTS.get(urllib.parse.urlparse(self.path).path)
@@ -2048,7 +1886,7 @@ class Handler(BaseHTTPRequestHandler):
             data = json.loads(self.rfile.read(n) or b"{}")
             if not isinstance(data, dict):
                 data = {}
-            body, code = (api_retreat(data) if kind == "retreat" else api_opponent(data))
+            body, code = api_opponent(data)
         except Exception as e:
             body, code = {"error": str(e)}, 500
         self._json(body, code)

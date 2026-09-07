@@ -164,7 +164,6 @@
       <button class="primary" onclick="loadLive()">更新</button>
       <span class="chks">
         <label title="gbfdataは毎時更新なので、新しい時刻のデータが出たら自動で取り直します"><input type="checkbox" id="autoRef"> 自動更新</label>
-        <label id="retreatLabel" title="団として撤退したらチェック。切り替えにはパスワードが必要で、団員全員の画面に反映されます"><input type="checkbox" id="retreatChk"> 撤退済み</label>
         <button id="oppSave" title="この日の対戦相手として保存します。次からは日付を選ぶだけで自動で入り、団員の画面にも同じ相手が入ります">相手を保存</button>
       </span>
     </div>
@@ -379,7 +378,6 @@ function fillDates(){
     sel.selectedIndex=0;            // 予選・IB・開催期間外は「予選」
   }
   sel.onchange=()=>{ syncYosenUI(); fillSavedOpp(); }; syncYosenUI(); fillSavedOpp();
-  $('#retreatChk').onchange=toggleRetreat;
   $('#oppSave').onclick=saveOpp;
 }
 // 保存済みの相手を相手欄に入れる。サーバ側は従来どおり明示指定を要求するので、
@@ -396,14 +394,14 @@ async function saveOpp(){
   if(date==='yosen'){ alert('予選には対戦相手がありません'); return; }
   const gid=$('#oppInput').value.trim();
   const name=(LAST_OPP&&String(LAST_OPP.gid)===gid)?LAST_OPP.name:'';
-  const pw=retreatPw();
+  const pw=editPw();
   if(!pw) return;
   let r;
   try{
     r=await (await fetch('/api/opponent',{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({raid:$('#raidSel').value,date,gid,name,pw})})).json();
   }catch(e){ r={error:'通信できませんでした'}; }
-  if(r.error){ try{ sessionStorage.removeItem('retreatPw'); }catch(e){} alert(r.error); return; }
+  if(r.error){ try{ sessionStorage.removeItem('editPw'); }catch(e){} alert(r.error); return; }
   cfg.opponents=cfg.opponents||{};
   if(gid) cfg.opponents[date]={gid:r.gid,name:r.name}; else delete cfg.opponents[date];
   alert(gid?`保存しました（${r.name||r.gid}）${r.persisted?'':'\n※保存先に書けませんでした。サーバ再起動で戻ります'}`
@@ -412,9 +410,8 @@ async function saveOpp(){
 function syncYosenUI(){
   const yo=$('#dateSel').value==='yosen';
   // 予選は相手団不要・過去比較は前回予選のみ → グレーアウト
-  ['#oppInput','#pastSel','#retreatChk','#oppSave'].forEach(s=>{const e=$(s); e.disabled=yo; e.style.opacity=yo?0.4:1;});
+  ['#oppInput','#pastSel','#oppSave'].forEach(s=>{const e=$(s); e.disabled=yo; e.style.opacity=yo?0.4:1;});
   $('#oppLabel').style.opacity=yo?0.4:1; $('#pastLabel').style.opacity=yo?0.4:1;
-  $('#retreatLabel').style.opacity=yo?0.4:1;
 }
 async function fetchJSON(url,tries=4){
   for(let i=0;i<tries;i++){
@@ -656,35 +653,16 @@ async function loadYosen(){
     {id:'#ySpdB',labels:L, cur:bs, prev:showPrev?pspd('border'):null,
      curLabel:'300位（今回）', prevLabel:'300位（前回）', color:'#D85A30'}]);
 }
-// 撤退は団の意思決定なので自動判定できず、団員全員の画面に反映させたい。
-// 状態はサーバが持ち、切り替えはパスワードを知っている団長だけができる。
+// サーバの共有状態(対戦相手)を書き換えられるのはパスワードを知っている団長だけ。
 // パスワードはこのタブの間だけ覚える(sessionStorage)。保存も送信もしない。
-function retreatPw(){
+function editPw(){
   let pw='';
-  try{ pw=sessionStorage.getItem('retreatPw')||''; }catch(e){}
+  try{ pw=sessionStorage.getItem('editPw')||''; }catch(e){}
   if(!pw){
     pw=prompt('パスワード')||'';
-    if(pw){ try{ sessionStorage.setItem('retreatPw',pw); }catch(e){} }
+    if(pw){ try{ sessionStorage.setItem('editPw',pw); }catch(e){} }
   }
   return pw;
-}
-async function toggleRetreat(){
-  const on=$('#retreatChk').checked;
-  const pw=retreatPw();
-  if(!pw){ $('#retreatChk').checked=!on; return; }
-  let r;
-  try{
-    r=await (await fetch('/api/retreat',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({raid:$('#raidSel').value,date:$('#dateSel').value,on,pw})})).json();
-  }catch(e){ r={error:'通信できませんでした'}; }
-  if(r.error){
-    try{ sessionStorage.removeItem('retreatPw'); }catch(e){}   // パスワードが違うなら覚え直す
-    $('#retreatChk').checked=!on;
-    alert(r.error);
-    return;
-  }
-  if(!r.persisted) alert('切り替えましたが、保存先(スプレッドシート)に書けませんでした。サーバが再起動すると戻ります');
-  loadLive();
 }
 // 時間帯パターンを4分割バーで見せる。「朝36% 昼23%…」の文字列だと折り返して読めない
 const PAT_C={朝:'#E8B44A',昼:'#5AA8E8',夕:'#D8894A',夜:'#6E6BAF'};
@@ -762,8 +740,6 @@ async function loadLive(){
   }
   // 相手方針 & 勝率予想
   const fc=d.forecast;
-  // 撤退はサーバが持つ状態。誰が開いても同じ表示になるよう、応答で上書きする
-  $('#retreatChk').checked = !!(fc && fc.retreated);
   if(fc){
     if(fc.policy){
       typeCards+=`<div><div class="k">相手の方針(直近時速)</div><div class="v" style="font-size:14px">${fc.policy.label}</div><div class="k">前日同時間帯の時速比 ${fc.policy.pct}%</div></div>`;
@@ -793,8 +769,8 @@ async function loadLive(){
   const mxOs=opk.v, mxPs=ppk.v;
   const mxPo=prev?mxOf(Object.values(prev.ours.speed||{})):null;
   const mxPp=prev?mxOf(Object.values(prev.opp.speed||{})):null;
-  // 判断バンド。毎時見るのは「勝っているか・どうすべきか」なので、リード・勝率・
-  // 推奨アクションを1枚にまとめて最上部に置く。素の数字は下のストリップへ。
+  // 判断バンド。毎時見るのは「勝っているか」なので、リードと勝率を
+  // 1枚にまとめて最上部に置く。素の数字は下のストリップへ。
   const mxCum=Math.max(lo??0, lp??0)||1;
   const leadHtml = lead==null ? '—'
     : (lead>=0 ? `<span class="up"><span class="mk">▲</span>+${lead.toFixed(1)}<span class="u" style="font-size:14px;color:var(--mut)">億</span></span>`
@@ -802,9 +778,6 @@ async function loadLive(){
   const fcx=d.forecast;
   let heroHtml='';
   if(lastIdx>=0){
-    const at=fcx&&fcx.advice
-      ? ({bad:['#fcebeb','#A32D2D'],mid:['#faeeda','#854F0B'],good:['#e1f5ee','#0F6E56']}[fcx.advice.tone]||['#e6f1fb','#185FA5'])
-      : null;
     heroHtml=`<div class="hero">
       <div class="heroTop">
         <div class="heroLead"><div class="k">本日リード</div><div class="v">${leadHtml}</div></div>
@@ -817,9 +790,6 @@ async function loadLive(){
         ${fcx?`<div class="heroWin"><div class="k">本日勝率予想</div><div class="v">${fcx.win}<span style="font-size:14px;color:var(--mut)">%</span></div>
           <div class="k">${fcx.proj_ours}億 vs ${fcx.proj_opp}億</div></div>`:''}
       </div>
-      ${fcx&&fcx.advice?`<div class="heroAct">
-        <span class="badge" style="background:${at[0]};color:${at[1]};flex:none">${fcx.advice.label}</span>
-        <span class="tx">${fcx.advice.text}</span></div>`:''}
     </div>`;
   }
   $('#liveBody').innerHTML=`

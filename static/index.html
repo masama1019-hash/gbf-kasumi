@@ -310,7 +310,7 @@ function splitSpeed(specs){
   specs.forEach(sp=>{
     mkChart(sp.id,'bar',sp.labels,[
       ...(sp.prev&&sp.prev.some(v=>v!=null)
-        ? [{label:sp.prevLabel||'前回',data:sp.prev,backgroundColor:'#AEBBC766',keyColor:'#AEBBC7',
+        ? [{label:sp.prevLabel||'前回',data:sp.prev,backgroundColor:sp.light,
             grouped:false,barPercentage:.98,categoryPercentage:.92,borderRadius:2}] : []),
       {label:sp.curLabel,data:sp.cur,backgroundColor:sp.color,grouped:false,
        barPercentage:.62,categoryPercentage:.92,borderRadius:2}],
@@ -646,9 +646,9 @@ async function loadYosen(){
   const showPrev=!!(p&&!pThin);
   splitSpeed([
     {id:'#ySpd', labels:L, cur:os, prev:showPrev?pspd('ours'):null,
-     curLabel:'霞桜団（今回）', prevLabel:'霞桜団（前回）', color:'#378ADD'},
+     curLabel:'霞桜団（今回）', prevLabel:'霞桜団（前回）', color:'#378ADD', light:'#9FC6ED'},
     {id:'#ySpdB',labels:L, cur:bs, prev:showPrev?pspd('border'):null,
-     curLabel:'300位（今回）', prevLabel:'300位（前回）', color:'#D85A30'}]);
+     curLabel:'300位（今回）', prevLabel:'300位（前回）', color:'#D85A30', light:'#F0B091'}]);
 }
 // 撤退は団の意思決定なので自動判定できず、団員全員の画面に反映させたい。
 // 状態はサーバが持ち、切り替えはパスワードを知っている団長だけができる。
@@ -873,10 +873,10 @@ async function loadLive(){
   splitSpeed([
     {id:'#spdC', labels:H, cur:os,
      prev:pv?d.hours.map(h=>pv.ours.speed[h]??null):null,
-     curLabel:`${d.ours.name}（${d.label}）`, prevLabel:`${d.ours.name}（${pv?pv.label:''}）`, color:'#378ADD'},
+     curLabel:`${d.ours.name}（${d.label}）`, prevLabel:`${d.ours.name}（${pv?pv.label:''}）`, color:'#378ADD', light:'#9FC6ED'},
     {id:'#spdO', labels:H, cur:ps,
      prev:pv?d.hours.map(h=>pv.opp.speed[h]??null):null,
-     curLabel:`${oppName}（${d.label}）`, prevLabel:`${oppName}（${pv?pv.label:''}）`, color:'#D85A30'}]);
+     curLabel:`${oppName}（${d.label}）`, prevLabel:`${oppName}（${pv?pv.label:''}）`, color:'#D85A30', light:'#F0B091'}]);
 }
 // gbfdataは毎時更新。毎時3分に取り直し、まだ新データが無ければ3分おきに再試行(最大5回)
 function scheduleAutoRefresh(){

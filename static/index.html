@@ -310,14 +310,16 @@ function splitSpeed(specs){
   specs.forEach(sp=>{
     mkChart(sp.id,'bar',sp.labels,[
       // 今回は棒。これが主役
+      // ⚠️ Chart.jsは order でソートした系列を「逆順に」描くので、order が小さい方が上に来る。
+      //    棒に小さい order を付けると前日の線が棒の下に隠れる(実際に隠れていた)
       {label:sp.curLabel,data:sp.cur,backgroundColor:sp.color,
-       barPercentage:.8,categoryPercentage:.92,borderRadius:2,order:1},
+       barPercentage:.8,categoryPercentage:.92,borderRadius:2,order:2},
       // 前日(前回)は線。棒と線で視覚の使い分けが違うので重ならず、棒の高さを邪魔しない。
       // ⚠️ 線は濃いインクにすること。同系色の濃い線だと棒の上でコントラスト2.1〜2.4しか
       //    出ず埋もれる。#2B3440 なら白背景12.6・青の棒の上3.5・赤の棒の上3.3(実測)
       ...(sp.prev&&sp.prev.some(v=>v!=null)
         ? [{label:sp.prevLabel||'前回',type:'line',data:sp.prev,borderColor:'#2B3440',
-            borderDash:[4,3],tension:0,pointRadius:0,borderWidth:1.6,spanGaps:true,order:2}] : [])],
+            borderDash:[4,3],tension:0,pointRadius:0,borderWidth:1.8,spanGaps:true,order:1}] : [])],
       {scales:{x:{grid:{display:false},border:{color:'rgba(28,39,51,.10)'},
                   ticks:{color:'#68707a',font:{size:10},maxRotation:0,autoSkipPadding:16}},
                y:{suggestedMax:top,grid:{color:'rgba(28,39,51,.038)',drawTicks:false},

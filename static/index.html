@@ -777,6 +777,17 @@ async function loadLive(){
                : `<span class="dn"><span class="mk">▼</span>${lead.toFixed(1)}<span class="u" style="font-size:14px;color:var(--mut)">億</span></span>`);
   const fcx=d.forecast;
   let heroHtml='';
+  // 勝率が何を見て出た数字かを1行で示す。判断の4点をそのまま並べる
+  const winBasisHtml=(f,d)=>{
+    const P=f.parts||{}, o=P.ours||{}, p=P.opp||{};
+    const nm=d.opp.name||'相手';
+    const bits=[`残り <b>${f.remain_h}時間</b>`];
+    if(o.peak!=null&&p.peak!=null) bits.push(`最高時速 ${o.peak} / ${p.peak}`);
+    if(f.ours_pattern&&f.opp_pattern) bits.push(`型 ${f.ours_pattern.label} / ${f.opp_pattern.label}`);
+    if(o.day_past!=null&&p.day_past!=null) bits.push(`過去ペース ${o.day_past} / ${p.day_past}億`);
+    const rest=(o.rest!=null&&p.rest!=null)?`　これから <b>+${o.rest}</b> / +${p.rest}億 と見込み`:'';
+    return `${d.ours.name} / ${nm} の順に　${bits.join('　・　')}${rest}`;
+  };
   if(lastIdx>=0){
     heroHtml=`<div class="hero">
       <div class="heroTop">
@@ -790,6 +801,7 @@ async function loadLive(){
         ${fcx?`<div class="heroWin"><div class="k">本日勝率予想</div><div class="v">${fcx.win}<span style="font-size:14px;color:var(--mut)">%</span></div>
           <div class="k">${fcx.proj_ours}億 vs ${fcx.proj_opp}億</div></div>`:''}
       </div>
+      ${fcx?`<div class="heroAct"><span class="tx" style="font-size:12.5px;color:var(--mut)">${winBasisHtml(fcx,d)}</span></div>`:''}
     </div>`;
   }
   $('#liveBody').innerHTML=`

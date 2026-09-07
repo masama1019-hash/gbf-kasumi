@@ -380,6 +380,30 @@ def time_pattern(cum):
             "rest_ratio": {k: round(v / 100, 3) for k, v in pct.items()}}
 
 
+def remaining_share(pat, hk):
+    """その時刻の直後から24時までに、その団の1日ぶんの何割が残っているか。
+    行動パターン(時間帯配分)から積み上げる。進行中の帯は残り時間ぶんだけ数える"""
+    if not pat or not pat.get("rest_ratio"):
+        return None
+    hh = int(hk.split(":")[0])
+    rest = 0.0
+    for name, lo, hi in BANDS:
+        share = pat["rest_ratio"].get(name, 0.0)
+        if hi <= hh:
+            continue                                   # 済んだ帯
+        if lo > hh:
+            rest += share                              # まるごと残っている帯
+        else:
+            rest += share * (hi - hh) / (hi - lo + 1)  # 進行中の帯
+    return max(0.0, min(1.0, rest))
+
+
+def peak_speed(*series):
+    """最高時速(億/h)。当日と前日の両方を渡して、その団が出せる上限の目安にする"""
+    vs = [v for sp in series for v in _speeds(sp).values() if v is not None]
+    return max(vs) if vs else None
+
+
 def _speeds(series):
     sp, prev = {}, 0
     for t in HOURS:
@@ -547,33 +571,6 @@ def api_live(q):
                 else:
                     policy = {"label": "撤退モード", "pct": pct, "tone": "good"}
 
-        # 最終予測: 前日の「同時刻→24時の残り伸び」を今日のペース比で補正して加算
-        def proj(now, side):
-            if prev_day:
-                yc = prev_day[side]["cum"]
-                if hk in yc and "24:00" in yc and yc[hk] > 0:
-                    rest = max(0.0, yc["24:00"] - yc[hk])
-                    ratio = min(1.5, max(0.5, now / yc[hk]))
-                    return now + rest * ratio
-            return now + (now / max(1, elapsed)) * remain
-        fo, fp = proj(o_now, "ours"), proj(p_now, "opp")
-
-        # 事前確率: 過去3回(現開催除く)の本戦日毎平均の力関係
-        def honsen_avg(rows):
-            raids = sorted({x["raid_number"] for x in rows if x["raid_number"] != raid}, reverse=True)[:3]
-            v = [x["today_point"] / 1e8 for x in rows if x["raid_number"] in raids and x["day_of"] >= 4]
-            return sum(v) / len(v) if v else None
-        oa, pa = honsen_avg(ours_hist), honsen_avg(opp_hist)
-        prior = 0.5
-        if oa and pa:
-            prior = ratio_winprob(oa / pa)
-
-        # 当日予測の確率化(残り時間が多いほど不確実性大) → 経過に応じて事前確率とブレンド
-        sigma = max(25.0, (fo + fp) / 2 * 0.06 + (fo + fp) / 2 * 0.30 * remain / len(HOURS))
-        p_proj = 1 / (1 + math.exp(-(fo - fp) / sigma))
-        w = elapsed / len(HOURS)
-        win = round(100 * ((1 - w) * prior + w * p_proj))
-        win = max(1, min(99, win))
         # 時間帯パターン: 前日の実績があればそれを、無ければ当日の推移から判定
         o_pat = time_pattern(prev_day["ours"]["cum"]) if prev_day else None
         p_pat = time_pattern(prev_day["opp"]["cum"]) if prev_day else None
@@ -581,9 +578,70 @@ def api_live(q):
             o_pat = time_pattern(ours)
         if not p_pat:
             p_pat = time_pattern(opp)
+
+        # 過去ペース: 過去3回(現開催を除く)の本戦1日あたりの平均
+        def honsen_avg(rows):
+            raids = sorted({x["raid_number"] for x in rows if x["raid_number"] != raid}, reverse=True)[:3]
+            v = [x["today_point"] / 1e8 for x in rows if x["raid_number"] in raids and x["day_of"] >= 4]
+            return sum(v) / len(v) if v else None
+        oa, pa = honsen_avg(ours_hist), honsen_avg(opp_hist)
+
+        # 勝率は次の4つだけで組む
+        #   ①残り時間  ②両団の最高時速  ③両団の行動パターン  ④両団の過去ペース
+        # 手順: パターンで「1日の何割が残っているか」を出して当日の着地を伸ばし、
+        #       過去ペースの着地とブレンドし、最高時速×残り時間で上限を掛ける。
+        w = elapsed / len(HOURS)          # ①経過が進むほど当日の形を信じる
+        parts = {}
+
+        def project(now, pat, past_avg, sp_today, sp_prev, side):
+            share = remaining_share(pat, hk)                      # ③パターンから残り割合
+            day_pat = now / (1 - share) if share is not None and share < 0.95 else None
+            day_past = None                                       # ④過去ペース
+            if prev_day and prev_day[side]["cum"].get("24:00"):
+                day_past = prev_day[side]["cum"]["24:00"]          # 前日の着地を最優先
+            elif past_avg:
+                day_past = past_avg
+            if day_pat is None:
+                day_pat = day_past if day_past else now + (now / max(1, elapsed)) * remain
+            if day_past is None:
+                day_past = day_pat
+            # ⚠️ すでに稼いだぶんを下回る着地はあり得ない。max(now, …)で抑えないと、
+            #    過去ペースを大きく上回っている団が「これから0億」と予測される
+            exp_day = max(now, w * day_pat + (1 - w) * day_past)
+            rest = max(0.0, exp_day - now)
+            # 直近の走りが続く最低線。残り時間があるのに完全停止と見なさないための下駄
+            recent = [v for v in list(_speeds(sp_today).values())[-2:] if v is not None]
+            if recent and remain:
+                rest = max(rest, sum(recent) / len(recent) * remain * 0.35)
+            peak = peak_speed(sp_today, sp_prev)                   # ②最高時速が残りの上限
+            cap = peak * remain if peak else None
+            capped = cap is not None and rest > cap
+            if capped:
+                rest = cap
+            parts[side] = {"share_rest": round(share, 3) if share is not None else None,
+                           "day_pattern": round(day_pat, 1), "day_past": round(day_past, 1),
+                           "peak": round(peak, 1) if peak else None,
+                           "cap": round(cap, 1) if cap is not None else None,
+                           "capped": capped, "rest": round(rest, 1),
+                           "recent": round(sum(recent) / len(recent), 1) if recent else None}
+            return now + rest
+
+        fo = project(o_now, o_pat, oa, ours, prev_day["ours"]["cum"] if prev_day else {}, "ours")
+        fp = project(p_now, p_pat, pa, opp, prev_day["opp"]["cum"] if prev_day else {}, "opp")
+
+        # 不確実性は「これから積む量」に比例する。①残り時間が減れば自然に小さくなり、
+        # 決着済みなら勝率が振れない。0除算と過信を避けるため下限を置く
+        ro, rp = parts["ours"]["rest"], parts["opp"]["rest"]
+        sigma = max(12.0, 0.32 * math.hypot(ro, rp), (fo + fp) / 2 * 0.02)
+        win = round(100 / (1 + math.exp(-(fo - fp) / sigma)))
+        win = max(1, min(99, win))
+
+        prior = ratio_winprob(oa / pa) if oa and pa else 0.5
         forecast = {"win": win, "proj_ours": round(fo, 1), "proj_opp": round(fp, 1),
                     "policy": policy, "prior": round(prior * 100),
-                    "basis": "前日推移ベース" if prev_day else "平均時速ベース",
+                    "basis": "残り時間・最高時速・行動パターン・過去ペース",
+                    "remain_h": remain, "sigma": round(sigma, 1),
+                    "parts": parts,
                     "ours_pattern": o_pat, "opp_pattern": p_pat}
 
     # 過去開催の総合順位推移(最終day_ofのrank)

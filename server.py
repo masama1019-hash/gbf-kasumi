@@ -575,7 +575,7 @@ def api_live(q):
         if prev_day:
             o_pat = time_pattern(prev_day["ours"]["cum"])
             p_pat = time_pattern(prev_day["opp"]["cum"])
-            src = prev_day["label"]
+            src = "前日"                     # 「本戦1日目」より「前日」の方が一目で分かる
         elif cur_do == 4:
             o_pat = time_pattern(res.get(("ypat", "ours")) or {})
             p_pat = time_pattern(res.get(("ypat", "opp")) or {})

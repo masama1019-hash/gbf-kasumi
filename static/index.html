@@ -760,12 +760,13 @@ async function loadLive(){
     }
     typeCards+=patCell(fc.ours_pattern,'自団')+patCell(fc.opp_pattern,'相手');
   }
-  // 前日同時刻のリード(日次対戦なので前日の同時点と比較できると撤退判断に便利)
+  // 直近1時間の貢献差。いま押しているか押されているかを帯の1行で示す。
+  // 以前は前日同時刻のリードを出していたが、日ごとに相手が変わるので参考にならず
+  // 2026-09-18に置き換えた(表の「時速差」の最新行と同じ値)
   let prevLeadTxt='';
-  if(prev&&lastIdx>=0){
-    const hkey=d.hours[lastIdx];
-    const po=prev.ours.cum[hkey], pp=prev.opp.cum[hkey];
-    if(po!=null&&pp!=null){const pl=po-pp; prevLeadTxt=`${prev.label}同時刻: ${pl>0?'+':''}${pl.toFixed(1)}億`;}
+  if(lastIdx>=0&&os[lastIdx]!=null&&ps[lastIdx]!=null){
+    const sd=os[lastIdx]-ps[lastIdx];
+    prevLeadTxt=`直近1時間 <b class="${sd>=0?'up':'dn'}">${sd>=0?'+':''}${sd.toFixed(1)}億</b>`;
   }
   // 相手団ページへのリンク
   const oppUrl=d.opp.gid?`https://game.granbluefantasy.jp/#guild/detail/${d.opp.gid}`:null;

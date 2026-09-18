@@ -380,17 +380,37 @@ def time_pattern(cum):
             "rest_ratio": {k: round(v / 100, 3) for k, v in pct.items()}}
 
 
-def yosen_pattern_series(raid, m, gid, hint):
-    """本戦1日目には前日実績が無いので、予選2日目(0〜24時運用)の8時以降で行動パターンを取る。
-    07:00時点を基準にすれば本戦と同じ「8時台からの時間帯配分」になる(0〜7時ぶんが朝に混ざらない)"""
-    y2 = [s["day"] for s in m["schedules"] if s.get("day_of") == 2]
-    if not y2:
-        return {}
-    d = y2[0]
-    b = find_guild(raid, d, "07:00", gid=gid, hint=hint, max_pages=12)
+def pattern_series(raid, date, gid, hint):
+    """行動パターン用の1日ぶん series。07:00時点を基準にするので本戦・予選どちらの日でも
+    「8時台からの時間帯配分」になる(予選2日目の0〜7時ぶんが朝に混ざらない)"""
+    b = find_guild(raid, date, "07:00", gid=gid, hint=hint, max_pages=12)
     if not b:
         return {}
-    return hourly_series(raid, d, b[0], gid, b[1])
+    return hourly_series(raid, date, b[0], gid, b[1])
+
+
+def day1_pattern_series(raid, m, hist, gid, default_hint):
+    """本戦1日目には前日実績が無いので前回の本戦4日目で代用する(2026-09-18 ユーザー指定)。
+    前回不参加・圏外で取れなければ今回の予選2日目に落とす。戻り値は (series, 判定元ラベル)"""
+    def rank_of(rn, day_of, default):
+        rk = [r["rank"] for r in hist if r["raid_number"] == rn and r.get("day_of") == day_of]
+        return rk[0] if rk else default
+
+    try:
+        pm = meta_for(raid - 1)
+        d4 = [x["day"] for x in pm["schedules"] if x.get("day_of") == 7]
+    except Exception:
+        d4 = []
+    if d4:
+        sr = pattern_series(raid - 1, d4[0], gid, rank_of(raid - 1, 7, default_hint))
+        if sr:
+            return sr, "前回本戦4日目"
+    y2 = [x["day"] for x in m["schedules"] if x.get("day_of") == 2]
+    if y2:
+        sr = pattern_series(raid, y2[0], gid, rank_of(raid, 2, default_hint))
+        if sr:
+            return sr, "予選2日目"
+    return {}, None
 
 
 def _speeds(series):
@@ -478,12 +498,10 @@ def api_live(q):
             jobs[("ours", d)] = ex.submit(series_job, ours_hist, OURS_GID, d, hint_for(ours_hist, d, 250))
             if opp_gid:
                 jobs[("opp", d)] = ex.submit(series_job, opp_hist, opp_gid, d, hint_for(opp_hist, d, 400))
-        if cur_do == 4:                      # 本戦1日目は行動パターン用に予選2日目も引く
-            jobs[("ypat", "ours")] = ex.submit(yosen_pattern_series, raid, m, OURS_GID,
-                                               hint_for(ours_hist, date, 250))
+        if cur_do == 4:                      # 本戦1日目は行動パターン用に前回本戦4日目も引く
+            jobs[("ypat", "ours")] = ex.submit(day1_pattern_series, raid, m, ours_hist, OURS_GID, 250)
             if opp_gid:
-                jobs[("ypat", "opp")] = ex.submit(yosen_pattern_series, raid, m, opp_gid,
-                                                  hint_for(opp_hist, date, 400))
+                jobs[("ypat", "opp")] = ex.submit(day1_pattern_series, raid, m, opp_hist, opp_gid, 400)
         res = {k: f.result() for k, f in jobs.items()}
 
     ours = res.get(("ours", date), {})
@@ -576,15 +594,23 @@ def api_live(q):
             o_pat = time_pattern(prev_day["ours"]["cum"])
             p_pat = time_pattern(prev_day["opp"]["cum"])
             src = "前日"                     # 「本戦1日目」より「前日」の方が一目で分かる
-        elif cur_do == 4:
-            o_pat = time_pattern(res.get(("ypat", "ours")) or {})
-            p_pat = time_pattern(res.get(("ypat", "opp")) or {})
-            src = "予選2日目"
+        elif cur_do == 4:                    # 自団と相手で判定元が違い得る(相手が前回不参加など)
+            for key, name in (("ypat", "ours"), ("ypat", "opp")):
+                sr, src = res.get((key, name)) or ({}, None)
+                pat = time_pattern(sr)
+                if pat:
+                    pat["src"] = src
+                if name == "ours":
+                    o_pat = pat
+                else:
+                    p_pat = pat
+            src = None
         else:
             pat_note = "過去比較を「前日」にすると前日の型を表示"
-        for x in (o_pat, p_pat):
-            if x:
-                x["src"] = src
+        if src:
+            for x in (o_pat, p_pat):
+                if x:
+                    x["src"] = src
         if not (o_pat or p_pat) and not pat_note:
             pat_note = "前日実績なし"
 

@@ -808,7 +808,7 @@ async function loadLive(){
       escape= mx<lead
         ? {tone:T.good,label:'逃げ切り圏内',
            text:`${oppName}が最高時速 ${oppPeak.toFixed(1)}億/h で残り${remainH}時間を走り切っても +${mx.toFixed(1)}億。自団が止まってもリード ${lead.toFixed(1)}億 には届きません`}
-        : {tone:T.mid,label:'追いつかれ得る',
+        : {tone:T.mid,label:'逆転される可能性有り',
            text:`${oppName}が最高時速 ${oppPeak.toFixed(1)}億/h で残り${remainH}時間を走ると +${mx.toFixed(1)}億。自団が止まると ${(mx-lead).toFixed(1)}億 逆転されます`};
     }else{
       const mx=ourPeak*remainH;

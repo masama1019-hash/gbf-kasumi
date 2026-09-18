@@ -528,14 +528,6 @@ async function copyChat(mode,btn){
   catch(e){ const ta=document.createElement('textarea'); ta.value=txt; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove(); }
   const m=$('#chatMsg'); if(m){ m.textContent='コピーしました'; setTimeout(()=>{m.textContent='';},2000); }
 }
-function paceJudge(ratio){
-  if(ratio==null) return null;
-  const pct=Math.round(ratio*100);
-  if(pct>=115) return {pct,txt:'前日より加速中',bg:'#fcebeb',fg:'#A32D2D'};
-  if(pct>=85)  return {pct,txt:'前日並みペース',bg:'#faeeda',fg:'#854F0B'};
-  if(pct>=60)  return {pct,txt:'前日より減速',bg:'#e6f1fb',fg:'#185FA5'};
-  return {pct,txt:'撤退の可能性大',bg:'#e1f5ee',fg:'#0F6E56'};
-}
 async function loadYosen(){
   $('#liveBody').innerHTML='<div class="load">予選データ取得中…(初回は15〜30秒)</div>';
   let d;
@@ -742,16 +734,9 @@ async function loadLive(){
   LAST_TICK=d.date+':'+(lastIdx>=0?H[lastIdx]:'');
   const lo=lastIdx>=0?oc[lastIdx]:0, lp=lastIdx>=0&&pc[lastIdx]!=null?pc[lastIdx]:null;
   const lead=lp!=null?(lo-lp):null;
-  // 前日同時刻比(撤退判断): 直近時刻の値 ÷ 前日(=past配列の最後)の同時刻値
   const prev=(d.past||[]).length?d.past[d.past.length-1]:null;
-  let judgeCards='', typeCards='';   // 上段=数値 / 下段=型・方針
-  if(prev&&lastIdx>=0){
-    const hkey=d.hours[lastIdx];
-    const oj=paceJudge(prev.opp.cum[hkey]?(d.opp.cum[hkey]??null)/prev.opp.cum[hkey]:null);
-    const kj=paceJudge(prev.ours.cum[hkey]?(d.ours.cum[hkey]??null)/prev.ours.cum[hkey]:null);
-    if(kj) judgeCards+=`<div><div class="k">自団 ${prev.label}同時刻比</div><div class="v">${kj.pct}<span class="u">%</span></div><div class="k">${kj.txt}</div></div>`;
-    if(oj) judgeCards+=`<div><div class="k">相手 ${prev.label}同時刻比</div><div class="v">${oj.pct}<span class="u">%</span></div><div class="k">${oj.txt}</div></div>`;
-  }
+  // 前日同時刻比の2枠は、日ごとに相手が変わるため参考にならず 2026-09-18 に外した
+  let typeCards='';                  // 下段=型・方針
   // 相手方針 & 勝率予想
   const fc=d.forecast;
   if(fc){
@@ -842,7 +827,6 @@ async function loadLive(){
     <div class="strip">
       <div><div class="k">${d.ours.name} 最高時速</div><div class="v">${opk.v?.toFixed(1)??'—'}<span class="u">億/h</span>${opk.h?` <span class="k" style="display:inline">${opk.h}時</span>`:''}</div></div>
       <div><div class="k">${oppName} 最高時速</div><div class="v">${ppk.v?.toFixed(1)??'—'}<span class="u">億/h</span>${ppk.h?` <span class="k" style="display:inline">${ppk.h}時</span>`:''}</div></div>
-      ${judgeCards}
       <div id="activeCell"><div class="k">団員の稼働</div><div class="v" style="color:var(--mut);font-size:13px">取得中…</div></div>
     </div>
     ${typeCards?`<div class="strip strip2">${typeCards}</div>`:''}

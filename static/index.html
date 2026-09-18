@@ -745,13 +745,13 @@ async function loadLive(){
     }
     typeCards+=patCell(fc.ours_pattern,'自団')+patCell(fc.opp_pattern,'相手');
   }
-  // 直近1時間の貢献差。いま押しているか押されているかを帯の1行で示す。
-  // 以前は前日同時刻のリードを出していたが、日ごとに相手が変わるので参考にならず
-  // 2026-09-18に置き換えた(表の「時速差」の最新行と同じ値)
-  let prevLeadTxt='';
-  if(lastIdx>=0&&os[lastIdx]!=null&&ps[lastIdx]!=null){
-    const sd=os[lastIdx]-ps[lastIdx];
-    prevLeadTxt=`直近1時間 <b class="${sd>=0?'up':'dn'}">${sd>=0?'+':''}${sd.toFixed(1)}億</b>`;
+  // 帯の下の1行は団チャット通知と同じ書式(最新時刻)。同じ chatLine を使うので通知と必ず一致する。
+  // 括弧は時速、貢献差の括弧はその1時間の差。以前ここにあった前日同時刻比・直近1時間の差は
+  // この1行に含まれる(2026-09-18)
+  let chatNow='';
+  if(lastIdx>=0&&oc[lastIdx]!=null&&pc[lastIdx]!=null){
+    chatNow=chatLine(H[lastIdx],oc[lastIdx],pc[lastIdx],os[lastIdx],ps[lastIdx],
+                     lastIdx>0&&os[lastIdx]!=null&&ps[lastIdx]!=null);
   }
   // 相手団ページへのリンク
   const oppUrl=d.opp.gid?`https://game.granbluefantasy.jp/#guild/detail/${d.opp.gid}`:null;
@@ -811,10 +811,10 @@ async function loadLive(){
       <div class="heroTop">
         <div class="heroLead"><div class="k">本日リード</div><div class="v">${leadHtml}</div></div>
         <div class="heroMid">
-          <div class="st">${lead==null?'':(lead>=0?'勝ち越し中':'ビハインド')}${prevLeadTxt?` <span class="k" style="font-weight:400">／ ${prevLeadTxt}</span>`:''}</div>
+          <div class="st">${lead==null?'':(lead>=0?'勝ち越し中':'ビハインド')}<span class="k" style="font-weight:400">　／　相手: ${oppNameHtml}</span></div>
           <div class="bar"><i style="width:${(lo??0)/mxCum*100}%;background:var(--blue)"></i></div>
           <div class="bar" style="margin-top:6px"><i style="width:${(lp??0)/mxCum*100}%;background:var(--red)"></i></div>
-          <div class="sub">${d.ours.name} ${lo?.toFixed(1)??'—'}億 ／ ${oppNameHtml} ${lp?.toFixed(1)??'—'}億　<span style="opacity:.8">${H[lastIdx]??''}時時点</span></div>
+          <div class="sub" style="color:var(--tx);font-size:13px">${chatNow||`${d.ours.name} ${lo?.toFixed(1)??'—'}億 ／ 相手 ${lp?.toFixed(1)??'—'}億`}</div>
         </div>
       </div>
       ${escape?`<div class="heroAct"><span class="badge" style="background:${escape.tone[0]};color:${escape.tone[1]};flex:none">${escape.label}</span><span class="tx">${escape.text}</span></div>`:''}

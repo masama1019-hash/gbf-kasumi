@@ -716,7 +716,7 @@ async function loadActive(d){
   const idle=a.idle_names||[];
   cell.innerHTML=`<div class="k">団員の稼働（${a.hour}時点）</div>
     <div class="v">${a.active}<span class="u"> / ${a.total}名</span></div>
-    <div class="k" ${idle.length?`title="本日未貢献: ${idle.join('、')}"`:''}>直近1時間に貢献 ／ 本日は${a.worked}名${idle.length?`（未貢献 ${idle.length}名）`:''}</div>`;
+    <div class="k" ${idle.length?`title="本日未貢献: ${idle.join('、')}"`:''}>直近1時間に貢献</div>`;
 }
 async function loadLive(){
   if($('#dateSel').value==='yosen'){ return loadYosen(); }

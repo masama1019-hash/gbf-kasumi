@@ -1142,6 +1142,49 @@ def user_hourly_points(raid, uid):
     return None
 
 
+def api_active(q):
+    """団員の稼働状況。直近1時間に貢献のあった人数と、その日に貢献のある人数。
+    user_hourly_points と同じ一括URL(団員30名ぶん)を読むので、開催中の先読みで
+    温まっていれば即返る。予測ではなく、その時点の事実だけを返す"""
+    m = meta_for(raid_arg(q))
+    raid = m["raid"]
+    date = q.get("date", [None])[0]
+    if not date:
+        battle = [x for x in m["schedules"] if x.get("day_of", 0) >= 4]
+        date = battle[-1]["day"] if battle else gbf_today()
+    ids = [u for _, u in MEMBERS]
+    url = (f"{GBF}/users/borders?raid_number={raid}&ranks=2000"
+           f"&user_ids={','.join(str(i) for i in ids)}")
+    d = get(url, ttl=180, slim=_slim_uhourly)
+    if not d:
+        return {"error": "団員の時刻毎を取得できませんでした"}
+    name_of = {u: n for n, u in MEMBERS}
+    byuid = {u.get("user_id"): u for u in d.get("users") or []}
+    # 本戦は7〜24時が稼働時間。25:00以降のスナップショットは見ない
+    latest = None
+    rows = []
+    for uid in ids:
+        pts = [pt for pt in (byuid.get(uid) or {}).get("points") or []
+               if pt.get("day") == date and pt.get("point") is not None
+               and int(pt["time"].split(":")[0]) <= 24]
+        pts.sort(key=lambda x: x["time"])
+        if not pts:
+            rows.append({"uid": uid, "name": name_of.get(uid), "gain_day": None, "gain_last": None})
+            continue
+        last = pts[-1]
+        latest = max(latest or "", last["time"])
+        gain_day = (last["point"] - pts[0]["point"]) / 1e8
+        gain_last = (last["point"] - pts[-2]["point"]) / 1e8 if len(pts) >= 2 else 0.0
+        rows.append({"uid": uid, "name": name_of.get(uid),
+                     "gain_day": round(gain_day, 1), "gain_last": round(gain_last, 1)})
+    active = [r["name"] for r in rows if r["gain_last"] and r["gain_last"] > 0]
+    worked = [r["name"] for r in rows if r["gain_day"] and r["gain_day"] > 0]
+    idle = [r["name"] for r in rows if not r["gain_day"]]
+    return {"date": date, "hour": hour_label(latest) if latest else None,
+            "total": len(ids), "active": len(active), "worked": len(worked),
+            "idle_names": idle}
+
+
 def koran_hourly(raid, date, uid, hint=3000, hint_start=None, day_of=None,
                  base_cum=None, prev_date=None):
     """指定日の 本人 と 2000位/100000位 の時刻毎累積・時速(億)。
@@ -1824,7 +1867,8 @@ def api_opponent(data):
 
 ROUTES = {"/api/config": api_config, "/api/live": api_live,
           "/api/scout": api_scout, "/api/yosen": api_yosen, "/api/koran": api_koran,
-          "/api/scout_speed": api_scout_speed, "/api/koran_all": api_koran_all}
+          "/api/scout_speed": api_scout_speed, "/api/koran_all": api_koran_all,
+          "/api/active": api_active}
 
 
 class Handler(BaseHTTPRequestHandler):

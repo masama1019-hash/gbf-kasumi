@@ -704,6 +704,20 @@ function rankHeatHtml(rh,oursName,oppName){
     <div class="hmkey">${RANK_BANDS.map(b=>`<span><i style="background:${b[1]}"></i>${b[2]}</span>`).join('')}</div>`;
 }
 function pickOpp(gid){ $('#oppInput').value=gid; loadLive(); }
+// 直近1時間に貢献のあった団員数 / 本日貢献のある人数。まだ走れる人が何人いるかの目安
+async function loadActive(d){
+  let a;
+  try{ a=await (await fetch('/api/active?raid='+$('#raidSel').value+'&date='+d.date)).json(); }
+  catch(e){ a=null; }
+  const cell=$('#activeCell'); if(!cell||!document.body.contains(cell)) return;
+  if(!a||a.error||a.hour==null){
+    cell.innerHTML=`<div class="k">団員の稼働</div><div class="v" style="color:var(--mut);font-size:13px">—</div>`; return;
+  }
+  const idle=a.idle_names||[];
+  cell.innerHTML=`<div class="k">団員の稼働（${a.hour}時点）</div>
+    <div class="v">${a.active}<span class="u"> / ${a.total}名</span></div>
+    <div class="k" ${idle.length?`title="本日未貢献: ${idle.join('、')}"`:''}>直近1時間に貢献 ／ 本日は${a.worked}名${idle.length?`（未貢献 ${idle.length}名）`:''}</div>`;
+}
 async function loadLive(){
   if($('#dateSel').value==='yosen'){ return loadYosen(); }
   const past=$('#pastSel').value;
@@ -765,6 +779,8 @@ async function loadLive(){
   // 食い違っていた(表は50.9を最大と示すのにカードは9時の49.9を出す、など)
   const peak=(sp,hrs)=>{let mv=null,mh=null;for(let i=0;i<sp.length;i++){if(sp[i]!=null&&(mv==null||sp[i]>mv)){mv=sp[i];mh=hrs[i];}}return{v:mv,h:mh};};
   const opk=peak(os,H), ppk=peak(ps,H);
+  // 団員の稼働状況は別APIで後から埋める(団員30名の一括取得。先読み済みなら即返る)
+  loadActive(d);
   // 表の強調はカードのピークと同じ値を使う(別々に求めるとまたずれる)
   const mxOs=opk.v, mxPs=ppk.v;
   const mxPo=prev?mxOf(Object.values(prev.ours.speed||{})):null;
@@ -775,6 +791,34 @@ async function loadLive(){
   const leadHtml = lead==null ? '—'
     : (lead>=0 ? `<span class="up"><span class="mk">▲</span>+${lead.toFixed(1)}<span class="u" style="font-size:14px;color:var(--mut)">億</span></span>`
                : `<span class="dn"><span class="mk">▼</span>${lead.toFixed(1)}<span class="u" style="font-size:14px;color:var(--mut)">億</span></span>`);
+  // 逃げ切り判定。「相手が最高時速で残り時間を全部走り、自団は止まる」という最悪の仮定で
+  // リードが保つかを掛け算するだけ。予測ではなく上限との比較なので当たり外れが無い。
+  // 最高時速は当日と前日の高い方(当日はまだ本気を出していないことがある)
+  const remainH=Math.max(0,d.hours.length-1-lastIdx);
+  const pkOf=sp=>Math.max(0,...Object.values(sp||{}).filter(v=>v!=null));
+  const oppPeak=Math.max(ppk.v||0, prev?pkOf(prev.opp.speed):0);
+  const ourPeak=Math.max(opk.v||0, prev?pkOf(prev.ours.speed):0);
+  let escape=null;
+  if(lastIdx>=0 && lead!=null){
+    const T={good:['#e1f5ee','#0F6E56'], mid:['#f0f2f5','#3d4854']};
+    if(remainH===0){
+      escape={tone:T.mid,label:'確定',text:`24時で終了。最終差は ${lead>=0?'+':''}${lead.toFixed(1)}億`};
+    }else if(lead>=0){
+      const mx=oppPeak*remainH;
+      escape= mx<lead
+        ? {tone:T.good,label:'逃げ切り圏内',
+           text:`${oppName}が最高時速 ${oppPeak.toFixed(1)}億/h で残り${remainH}時間を走り切っても +${mx.toFixed(1)}億。自団が止まってもリード ${lead.toFixed(1)}億 には届きません`}
+        : {tone:T.mid,label:'追いつかれ得る',
+           text:`${oppName}が最高時速 ${oppPeak.toFixed(1)}億/h で残り${remainH}時間を走ると +${mx.toFixed(1)}億。自団が止まると ${(mx-lead).toFixed(1)}億 逆転されます`};
+    }else{
+      const mx=ourPeak*remainH;
+      escape= mx>-lead
+        ? {tone:T.mid,label:'逆転可能',
+           text:`自団が最高時速 ${ourPeak.toFixed(1)}億/h で残り${remainH}時間を走れば +${mx.toFixed(1)}億。相手が止まれば ${(-lead).toFixed(1)}億 のビハインドは返せます`}
+        : {tone:T.mid,label:'逆転困難',
+           text:`自団が最高時速 ${ourPeak.toFixed(1)}億/h で残り${remainH}時間を走り切っても +${mx.toFixed(1)}億。相手が止まっても ${(-lead).toFixed(1)}億 のビハインドに届きません`};
+    }
+  }
   let heroHtml='';
   if(lastIdx>=0){
     heroHtml=`<div class="hero">
@@ -787,6 +831,7 @@ async function loadLive(){
           <div class="sub">${d.ours.name} ${lo?.toFixed(1)??'—'}億 ／ ${oppNameHtml} ${lp?.toFixed(1)??'—'}億　<span style="opacity:.8">${H[lastIdx]??''}時時点</span></div>
         </div>
       </div>
+      ${escape?`<div class="heroAct"><span class="badge" style="background:${escape.tone[0]};color:${escape.tone[1]};flex:none">${escape.label}</span><span class="tx">${escape.text}</span></div>`:''}
     </div>`;
   }
   $('#liveBody').innerHTML=`
@@ -797,6 +842,7 @@ async function loadLive(){
       <div><div class="k">${d.ours.name} 最高時速</div><div class="v">${opk.v?.toFixed(1)??'—'}<span class="u">億/h</span>${opk.h?` <span class="k" style="display:inline">${opk.h}時</span>`:''}</div></div>
       <div><div class="k">${oppName} 最高時速</div><div class="v">${ppk.v?.toFixed(1)??'—'}<span class="u">億/h</span>${ppk.h?` <span class="k" style="display:inline">${ppk.h}時</span>`:''}</div></div>
       ${judgeCards}
+      <div id="activeCell"><div class="k">団員の稼働</div><div class="v" style="color:var(--mut);font-size:13px">取得中…</div></div>
     </div>
     ${typeCards?`<div class="strip strip2">${typeCards}</div>`:''}
     <div class="card"><h2>当日貢献度${(d.past||[]).length?(d.past.length===1?' — 点線（前日貢献度）':' — 点線（過去日貢献度）'):''}</h2><div class="chartbox"><canvas id="cumC"></canvas></div></div>

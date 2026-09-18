@@ -380,6 +380,19 @@ def time_pattern(cum):
             "rest_ratio": {k: round(v / 100, 3) for k, v in pct.items()}}
 
 
+def yosen_pattern_series(raid, m, gid, hint):
+    """本戦1日目には前日実績が無いので、予選2日目(0〜24時運用)の8時以降で行動パターンを取る。
+    07:00時点を基準にすれば本戦と同じ「8時台からの時間帯配分」になる(0〜7時ぶんが朝に混ざらない)"""
+    y2 = [s["day"] for s in m["schedules"] if s.get("day_of") == 2]
+    if not y2:
+        return {}
+    d = y2[0]
+    b = find_guild(raid, d, "07:00", gid=gid, hint=hint, max_pages=12)
+    if not b:
+        return {}
+    return hourly_series(raid, d, b[0], gid, b[1])
+
+
 def _speeds(series):
     sp, prev = {}, 0
     for t in HOURS:
@@ -465,6 +478,12 @@ def api_live(q):
             jobs[("ours", d)] = ex.submit(series_job, ours_hist, OURS_GID, d, hint_for(ours_hist, d, 250))
             if opp_gid:
                 jobs[("opp", d)] = ex.submit(series_job, opp_hist, opp_gid, d, hint_for(opp_hist, d, 400))
+        if cur_do == 4:                      # 本戦1日目は行動パターン用に予選2日目も引く
+            jobs[("ypat", "ours")] = ex.submit(yosen_pattern_series, raid, m, OURS_GID,
+                                               hint_for(ours_hist, date, 250))
+            if opp_gid:
+                jobs[("ypat", "opp")] = ex.submit(yosen_pattern_series, raid, m, opp_gid,
+                                                  hint_for(opp_hist, date, 400))
         res = {k: f.result() for k, f in jobs.items()}
 
     ours = res.get(("ours", date), {})
@@ -548,15 +567,29 @@ def api_live(q):
                 else:
                     policy = {"label": "撤退モード", "pct": pct, "tone": "good"}
 
-        # 時間帯パターン: 前日の実績があればそれを、無ければ当日の推移から判定
-        o_pat = time_pattern(prev_day["ours"]["cum"]) if prev_day else None
-        p_pat = time_pattern(prev_day["opp"]["cum"]) if prev_day else None
-        if not o_pat:
-            o_pat = time_pattern(ours)
-        if not p_pat:
-            p_pat = time_pattern(opp)
+        # 時間帯パターン: 前日の丸一日ぶんで判定する。当日の推移で判定すると朝〜夕方は
+        # 全団「朝型 朝100%」になり意味が無いので、当日ぶんでは判定しない(2026-09-18)。
+        # 本戦1日目は前日が無いので予選2日目(8時以降)で代用する
+        o_pat = p_pat = None
+        pat_note = None
+        if prev_day:
+            o_pat = time_pattern(prev_day["ours"]["cum"])
+            p_pat = time_pattern(prev_day["opp"]["cum"])
+            src = prev_day["label"]
+        elif cur_do == 4:
+            o_pat = time_pattern(res.get(("ypat", "ours")) or {})
+            p_pat = time_pattern(res.get(("ypat", "opp")) or {})
+            src = "予選2日目"
+        else:
+            pat_note = "過去比較を「前日」にすると前日の型を表示"
+        for x in (o_pat, p_pat):
+            if x:
+                x["src"] = src
+        if not (o_pat or p_pat) and not pat_note:
+            pat_note = "前日実績なし"
 
-        forecast = {"policy": policy, "ours_pattern": o_pat, "opp_pattern": p_pat}
+        forecast = {"policy": policy, "ours_pattern": o_pat, "opp_pattern": p_pat,
+                    "pattern_note": pat_note}
 
     # 過去開催の総合順位推移(最終day_ofのrank)
     # 直近3開催の 予選→本戦1〜4 の総合順位推移

@@ -61,7 +61,7 @@
   .heroAct { border-top:1px solid #e3e8ee; padding:15px 24px; display:flex; gap:13px;
              align-items:flex-start; background:var(--bg); }
   .heroAct .tx { font-size:13px; color:var(--tx); line-height:1.7; }
-  /* 帯のバー下に置く直近1時間のチップ(予選)。色の丸=バーの色 */
+  /* 帯のバー下に置く直近1時間のチップ(予選・本戦)。色の丸=バーの色 */
   .chips { display:flex; flex-wrap:wrap; gap:6px; margin-top:10px; }
   .chip { display:inline-flex; align-items:center; gap:6px; background:#f0f3f7; border-radius:999px; padding:4px 10px; font-size:11.5px; color:var(--tx); font-variant-numeric:tabular-nums; }
   .chip i { width:8px; height:8px; border-radius:50%; display:inline-block; }
@@ -763,13 +763,16 @@ async function loadLive(){
     }
     typeCards+=patCell(fc.ours_pattern,'自団',fc.pattern_note)+patCell(fc.opp_pattern,'相手',fc.pattern_note);
   }
-  // 帯の下の1行は団チャット通知と同じ書式(最新時刻)。同じ chatLine を使うので通知と必ず一致する。
-  // 括弧は時速、貢献差の括弧はその1時間の差。以前ここにあった前日同時刻比・直近1時間の差は
-  // この1行に含まれる(2026-09-18)
+  // バーの下は予選と同じく直近1時間のチップ3つ(自団時速/相手時速/差の動き)。
+  // 累積・時点は帯とストリップに出ているので載せない(2026-09-19 候補C)
   let chatNow='';
-  if(lastIdx>=0&&oc[lastIdx]!=null&&pc[lastIdx]!=null){
-    chatNow=chatLine(H[lastIdx],oc[lastIdx],pc[lastIdx],os[lastIdx],ps[lastIdx],
-                     lastIdx>0&&os[lastIdx]!=null&&ps[lastIdx]!=null);
+  if(lastIdx>0&&os[lastIdx]!=null&&ps[lastIdx]!=null){
+    const dd=os[lastIdx]-ps[lastIdx];
+    const mv=dd>0.05?`<b>▲${f1(dd)}億</b> 拡大`:dd<-0.05?`<b>▼${f1(-dd)}億</b> 縮小`:`<b>±0</b> 横ばい`;
+    chatNow=`<div class="chips" title="${H[lastIdx-1]}→${H[lastIdx]}時の1時間">
+      <span class="chip"><i style="background:var(--blue)"></i><span class="k">直近1H</span>${f1(os[lastIdx])}億</span>
+      <span class="chip"><i style="background:var(--red)"></i><span class="k">直近1H</span>${f1(ps[lastIdx])}億</span>
+      <span class="chip"><span class="k">差の動き</span>${mv}</span></div>`;
   }
   // 相手団ページへのリンク
   const oppUrl=d.opp.gid?`https://game.granbluefantasy.jp/#guild/detail/${d.opp.gid}`:null;
@@ -832,7 +835,7 @@ async function loadLive(){
           <div class="st">${lead==null?'':(lead>=0?'勝ち越し中':'ビハインド')}<span class="k" style="font-weight:400">　／　相手: ${oppNameHtml}</span></div>
           <div class="bar"><i style="width:${(lo??0)/mxCum*100}%;background:var(--blue)"></i></div>
           <div class="bar" style="margin-top:6px"><i style="width:${(lp??0)/mxCum*100}%;background:var(--red)"></i></div>
-          <div class="sub" style="color:var(--tx);font-size:13px">${chatNow||`${d.ours.name} ${lo?.toFixed(1)??'—'}億 ／ 相手 ${lp?.toFixed(1)??'—'}億`}</div>
+          ${chatNow||`<div class="sub">${d.ours.name} ${lo?.toFixed(1)??'—'}億 ／ 相手 ${lp?.toFixed(1)??'—'}億</div>`}
         </div>
       </div>
       ${escape?`<div class="heroAct"><span class="badge" style="background:${escape.tone[0]};color:${escape.tone[1]};flex:none">${escape.label}</span><span class="tx">${escape.text}</span></div>`:''}

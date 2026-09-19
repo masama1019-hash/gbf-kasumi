@@ -61,6 +61,12 @@
   .heroAct { border-top:1px solid #e3e8ee; padding:15px 24px; display:flex; gap:13px;
              align-items:flex-start; background:var(--bg); }
   .heroAct .tx { font-size:13px; color:var(--tx); line-height:1.7; }
+  /* 帯のバー下に置く直近1時間のチップ(予選)。色の丸=バーの色 */
+  .chips { display:flex; flex-wrap:wrap; gap:6px; margin-top:10px; }
+  .chip { display:inline-flex; align-items:center; gap:6px; background:#f0f3f7; border-radius:999px; padding:4px 10px; font-size:11.5px; color:var(--tx); font-variant-numeric:tabular-nums; }
+  .chip i { width:8px; height:8px; border-radius:50%; display:inline-block; }
+  .chip .k { color:var(--mut); }
+  .chip b { font-weight:700; }
   .bar { height:9px; border-radius:5px; background:rgba(127,139,153,.16); overflow:hidden; }
   .bar i { display:block; height:100%; border-radius:5px; }
   /* 「悪い」を赤にしない。相手団の赤(--red)と見分けが付かないため、記号と語と濃いインクで示す */
@@ -590,9 +596,17 @@ async function loadYosen(){
   // 前回を重ねられないときは、見出しから「破線=前回」を外して理由を出す
   const pvTag=(p&&!pThin)?` — 実線=今回(第${d.raid}回) / 破線=前回(第${d.raid-1}回)`:'';
   const pvNote=pThin?`<div class="card" style="font-size:12.5px;color:var(--mut)">第${d.raid-1}回の毎時データはgbfdataに残っていないため、前回の推移は重ねていません（残っているのは各日終わりの値だけです）。下の表の「前回300位」と着地予想には使えています</div>`:'';
-  // 帯の下の1行は本戦と同じく団チャット通知(予選用)の最新行。括弧は直近1時間の伸び(2026-09-19)
-  const yChatNow=(li>=0&&lo!=null&&lb!=null)
-    ? chatLineYosen(L[li],lo,lb,os[li],bs[li],lr, li>0&&os[li]!=null&&bs[li]!=null) : '';
+  // バーの下は直近1時間だけをチップ3つで(累積・順位は帯とストリップに出ていて被る)。
+  // 自団/300位はバーと同じ色の丸で示し、語を省く(2026-09-19 候補C)
+  let yChatNow='';
+  if(li>0&&os[li]!=null&&bs[li]!=null){
+    const dd=os[li]-bs[li];
+    const mv=dd>0.05?`<b>▲${f1(dd)}億</b> 拡大`:dd<-0.05?`<b>▼${f1(-dd)}億</b> 縮小`:`<b>±0</b> 横ばい`;
+    yChatNow=`<div class="chips" title="${L[li-1]}→${L[li]}の1時間">
+      <span class="chip"><i style="background:var(--blue)"></i><span class="k">直近1H</span>${f1(os[li])}億</span>
+      <span class="chip"><i style="background:var(--red)"></i><span class="k">直近1H</span>${f1(bs[li])}億</span>
+      <span class="chip"><span class="k">差の動き</span>${mv}</span></div>`;
+  }
   const yosenHero=`
     <div class="hero">
       <div class="heroTop">
@@ -601,7 +615,7 @@ async function loadYosen(){
           <div class="st">${diff==null?'':(diff>=0?'通過圏内':'圏外・要追い上げ')}</div>
           <div class="bar"><i style="width:${(lo??0)/mxY*100}%;background:var(--blue)"></i></div>
           <div class="bar" style="margin-top:6px"><i style="width:${(lb??0)/mxY*100}%;background:var(--red)"></i></div>
-          <div class="sub">${yChatNow||`霞桜団 ${lo?.toFixed(1)??'—'}億${lr?`（${lr}位）`:''} ／ 300位ボーダー ${lb?.toFixed(1)??'—'}億　<span style="opacity:.8">${L[li]??''}時点</span>`}</div>
+          ${yChatNow||`<div class="sub">霞桜団 ${lo?.toFixed(1)??'—'}億${lr?`（${lr}位）`:''} ／ 300位ボーダー ${lb?.toFixed(1)??'—'}億　<span style="opacity:.8">${L[li]??''}時点</span></div>`}
         </div>
         ${projFinal!=null?`<div class="heroWin"><div class="k">300位 着地予想</div><div class="v">${f1(projFinal)}<span style="font-size:14px;color:var(--mut)">億</span></div>
           ${ourMargin!=null?`<div class="k">自団との差 ${ourMargin>=0?'+':''}${f1(ourMargin)}億</div>`:''}</div>`:''}

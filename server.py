@@ -1114,7 +1114,8 @@ def gr_loop():
                         cur = ylog_get(m["raid"])          # アーカイブ優先(先に見えた点を残す)
                         merged = merge_yosen(cur, gr_series(m["raid"]))
                         ylog_save(m["raid"], merged["keys"], merged["labels"],
-                                  merged["ours"]["cum"], merged["border"]["cum"])
+                                  merged["ours"]["cum"], merged["border"]["cum"],
+                                  merged["ours"].get("rank"))
         except Exception:
             pass
         time.sleep(wait)
@@ -1209,7 +1210,7 @@ def api_yosen(q):
     if has(cur):
         threading.Thread(target=ylog_save,
                          args=(raid, cur["keys"], cur["labels"],
-                               cur["ours"]["cum"], cur["border"]["cum"]),
+                               cur["ours"]["cum"], cur["border"]["cum"], cur["ours"].get("rank")),
                          daemon=True).start()
     else:                                        # 消えていたら保存済みで代替
         got = ylog_get(raid)
@@ -2062,20 +2063,28 @@ def log_get(raid, date):
     return log_map().get(f"{raid}|{date}")
 
 
-def ylog_save(raid, keys, labels, ours_cum, border_cum):
+def ylog_save(raid, keys, labels, ours_cum, border_cum, ours_rank=None):
     """予選の毎時ログ。本戦と同じセルにキー「開催回|yosen」で入れる。
     予選のキーは "2026-06-21 20:00" 形式で本戦の "HH:00" と違い、時刻の並びも
-    回によって変わるので、keys と表示用の labels を一緒に持つ"""
+    回によって変わるので、keys と表示用の labels を一緒に持つ。
+    自団の順位("r")も持つ(予選は29点なので量は気にならない。2026-09-21 再起動後に
+    アーカイブから戻した点の順位が空欄になったため追加)"""
     key = f"{raid}|yosen"
     o = [ours_cum.get(k) for k in keys]
     b = [border_cum.get(k) for k in keys]
+    r = [(ours_rank or {}).get(k) for k in keys]
     if not (_measured(o) or _measured(b)):
         return
     m = dict(log_map())
     old = m.get(key)
-    if old and _measured(old.get("o")) >= _measured(o) and _measured(old.get("b")) >= _measured(b):
-        return
-    m[key] = {"k": list(keys), "l": list(labels), "o": o, "b": b}
+    if old:
+        # 保存済みの順位は残す(新しい側で欠けていても消さない)
+        om = {k: v for k, v in zip(old.get("k") or [], old.get("r") or []) if v is not None}
+        r = [rv if rv is not None else om.get(k) for k, rv in zip(keys, r)]
+        if (_measured(old.get("o")) >= _measured(o) and _measured(old.get("b")) >= _measured(b)
+                and _measured(old.get("r")) >= _measured(r)):
+            return
+    m[key] = {"k": list(keys), "l": list(labels), "o": o, "b": b, "r": r}
     saved = _gas({"cell": GAS_CELL_LOG, "value": json.dumps(m, ensure_ascii=False,
                                                             separators=(",", ":"))})
     if saved and saved.get("status") == "ok":
@@ -2092,6 +2101,10 @@ def ylog_get(raid):
     lbs = lg.get("l") or ks
     oc = {k: v for k, v in zip(ks, lg.get("o") or []) if v is not None}
     bc = {k: v for k, v in zip(ks, lg.get("b") or []) if v is not None}
+    orank = {k: v for k, v in zip(ks, lg.get("r") or []) if v is not None}
+    # 順位の保存を始める前(第84回 20時)に取れていた順位。アーカイブに無ければ補う
+    for k, v in _YOSEN_RANK_SEED.get(raid, {}).items():
+        orank.setdefault(k, v)
     if not (oc or bc):
         return None
 
@@ -2102,10 +2115,14 @@ def ylog_get(raid):
                 out[k] = round(cum[k] - prev, 1)
                 prev = cum[k]
         return out
-    # 順位は保存対象外(データ量が数倍になるため)。表の順位列は空欄になる
     return {"keys": ks, "labels": lbs,
-            "ours": {"cum": oc, "speed": spd(oc), "rank": {}},
+            "ours": {"cum": oc, "speed": spd(oc), "rank": orank},
             "border": {"cum": bc, "speed": spd(bc)}}
+
+
+# 第84回 20:05のgbfrankingスナップショットで見えた順位。順位をアーカイブに入れる前だったので
+# ここで補う(第84回が終わったら消してよい)
+_YOSEN_RANK_SEED = {84: {"2026-09-21 20:00": 244}}
 
 
 def api_opponent(data):

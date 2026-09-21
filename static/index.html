@@ -614,7 +614,7 @@ async function loadYosen(){
       <div class="heroTop">
         <div class="heroLead"><div class="k">300位との差</div><div class="v">${diffHtml(diff)}</div></div>
         <div class="heroMid">
-          <div class="st">${diff==null?'':(diff>=0?'通過圏内':'圏外・要追い上げ')}</div>
+          <div class="st">${diff==null?'':(diff>=0?'通過圏内':'圏外・要追い上げ')}${li>=0?`<span class="k" style="font-weight:400">　／　${L[li]}時点</span>`:''}</div>
           <div class="bar"><i style="width:${(lo??0)/mxY*100}%;background:var(--blue)"></i></div>
           <div class="bar" style="margin-top:6px"><i style="width:${(lb??0)/mxY*100}%;background:var(--red)"></i></div>
           ${yChatNow||`<div class="sub">霞桜団 ${lo?.toFixed(1)??'—'}億${lr?`（${lr}位）`:''} ／ 300位ボーダー ${lb?.toFixed(1)??'—'}億　<span style="opacity:.8">${L[li]??''}時点</span></div>`}
@@ -834,7 +834,7 @@ async function loadLive(){
       <div class="heroTop">
         <div class="heroLead"><div class="k">本日リード</div><div class="v">${leadHtml}</div></div>
         <div class="heroMid">
-          <div class="st">${lead==null?'':(lead>=0?'勝ち越し中':'ビハインド')}<span class="k" style="font-weight:400">　／　相手: ${oppNameHtml}</span></div>
+          <div class="st">${lead==null?'':(lead>=0?'勝ち越し中':'ビハインド')}<span class="k" style="font-weight:400">　／　相手: ${oppNameHtml}${lastIdx>=0?`　／　${H[lastIdx]}時時点`:''}</span></div>
           <div class="bar"><i style="width:${(lo??0)/mxCum*100}%;background:var(--blue)"></i></div>
           <div class="bar" style="margin-top:6px"><i style="width:${(lp??0)/mxCum*100}%;background:var(--red)"></i></div>
           ${chatNow||`<div class="sub">${d.ours.name} ${lo?.toFixed(1)??'—'}億 ／ 相手 ${lp?.toFixed(1)??'—'}億</div>`}

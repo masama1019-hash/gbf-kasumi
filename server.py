@@ -253,7 +253,28 @@ def meta_for(raid=None):
     if not latest:
         d2 = get(f"{GBF}/users/borders", ttl=600)
         latest = ((d2 or {}).get("meta") or {}).get("latest_raid_number") or rn
+    # gbfdataの latest_raid_number は開催初日になっても前回のまま残ることがある
+    # (2026-09-21 18:58 時点で84回の日程は返るのに latest=83)。次回の日程が既に
+    # 始まっていれば、それを最新として扱う(指定なしの表示と回一覧が今回に切り替わる)
+    if latest:
+        nx = _next_raid_started(latest)
+        if nx:
+            latest = nx["raid"]
+            if not raid:
+                rn, sched = nx["raid"], nx["schedules"]
     return {"raid": rn, "latest": latest, "schedules": sched}
+
+
+def _next_raid_started(latest):
+    """latest+1 の日程が返り、その初日が今日(JST)以前なら {"raid","schedules"}、それ以外は None"""
+    d = get(f"{GBF}/users/borders?raid_number={latest + 1}", ttl=600)
+    sched = ((d or {}).get("meta") or {}).get("schedules") or []
+    if not sched:
+        return None
+    today = datetime.now(timezone(timedelta(hours=9))).strftime("%Y-%m-%d")   # RenderはUTC
+    if min(x["day"] for x in sched) <= today:
+        return {"raid": latest + 1, "schedules": sched}
+    return None
 
 
 def raid_arg(q):

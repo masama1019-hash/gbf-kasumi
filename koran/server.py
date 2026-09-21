@@ -127,8 +127,18 @@ def raid_meta():
         return {"latest": None, "raids": [], "schedules": []}
     m = d.get("meta") or {}
     latest = m.get("latest_raid_number") or m.get("raid_number")
+    sched = m.get("schedules") or []
+    # gbfdataの latest_raid_number は開催初日になっても前回のまま残ることがある
+    # (2026-09-21 18:58 時点で84回の日程は返るのに latest=83)。次回の日程が既に
+    # 始まっていればそれを最新として扱う
+    if latest:
+        d2 = get(f"{GBF}/users/borders?ranks=2000&raid_number={latest + 1}", ttl=600)
+        s2 = ((d2 or {}).get("meta") or {}).get("schedules") or []
+        today = datetime.now(timezone(timedelta(hours=9))).strftime("%Y-%m-%d")   # RenderはUTC
+        if s2 and min(x["day"] for x in s2) <= today:
+            latest, sched = latest + 1, s2
     raids = [r for r in (latest, latest - 1 if latest else None) if r]
-    return {"latest": latest, "raids": raids, "schedules": m.get("schedules") or []}
+    return {"latest": latest, "raids": raids, "schedules": sched}
 
 
 def fetch_latest():

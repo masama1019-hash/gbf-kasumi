@@ -640,7 +640,7 @@ async function loadYosen(){
       <div class="subcap">300位ボーダー</div>
       <div class="chartbox" style="height:180px"><canvas id="ySpdB"></canvas></div></div>
     <div class="card"><h2>予選推移（数値・億）</h2><div class="tw"><table><tr><th>時刻</th><th>霞桜団</th><th>順位</th><th>時速</th><th>300位</th><th>時速</th><th>時速差</th><th>累積差</th>${p?'<th>前回300位</th><th>前回比</th>':''}</tr>${
-      K.map((k,i)=>{const df=(oc[i]!=null&&bc[i]!=null)?oc[i]-bc[i]:null; const bd=(bc[i]!=null&&pb[i]!=null)?bc[i]-pb[i]:null;
+      K.map((k,i)=>{if(oc[i]==null&&bc[i]==null)return''; const df=(oc[i]!=null&&bc[i]!=null)?oc[i]-bc[i]:null; const bd=(bc[i]!=null&&pb[i]!=null)?bc[i]-pb[i]:null;
         const sd=(os[i]!=null&&bs[i]!=null)?Math.round((os[i]-bs[i])*10)/10:null;   // その1時間の貢献差
         return `<tr><td>${L[i]}</td><td>${f1(oc[i])}</td><td style="color:var(--mut)">${orank[i]?orank[i]+'位':'—'}</td><td class="sp${mxCls(os[i],mxO)}">${f1(os[i])}</td><td>${f1(bc[i])}</td><td class="sp${mxCls(bs[i],mxB)}">${f1(bs[i])}</td>${diffTd(sd)}${diffTd(df)}${p?`<td style="color:var(--mut)">${f1(pb[i])}</td><td class="${bd!=null?(bd>0?'bad':'good'):''}">${bd!=null?(bd>0?'+':'')+bd.toFixed(1):'—'}</td>`:''}</tr>`;}).join('')
     }</table></div></div>

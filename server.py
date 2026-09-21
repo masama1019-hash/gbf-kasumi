@@ -1081,6 +1081,19 @@ def merge_yosen(base, extra):
             "border": {"cum": bc, "speed": spd(bc)}}
 
 
+def pad_yosen_axis(cur, sched):
+    """開催中は横軸を予選の全時刻(1日目20〜30時・2日目7〜24時)まで伸ばす。
+    序盤は今回の点が数個しか無く、前回の破線と着地予想の線が画面に出なかったため(2026-09-21)"""
+    days = {x["day_of"]: x["day"] for x in sched}
+    d1, d2 = days.get(1), days.get(2)
+    if not (d1 and d2):
+        return cur
+    full = [f"{d1} {h:02d}:00" for h in range(20, 31)] + [f"{d2} {h:02d}:00" for h in range(7, 25)]
+    keys = sorted(set(cur["keys"]) | set(full),
+                  key=lambda k: (k.split(" ")[0], int(k.split(" ")[1].split(":")[0])))
+    return {**cur, "keys": keys, "labels": [hour_label(k.split(" ")[1]) for k in keys]}
+
+
 def gr_loop():
     """予選期間中(1日目19時〜2日目終了+1時間)は5分毎にgbfrankingを見て点を集め、
     新しい点が入ったらアーカイブにも書く。期間外は30分毎に日程だけ見直す"""
@@ -1184,6 +1197,8 @@ def api_yosen(q):
     cur = merge_yosen(cur, gr)
     if not has(cur) or len(cur["keys"]) < len((ylog_get(raid) or {}).get("keys") or []):
         cur = merge_yosen(cur, ylog_get(raid))
+    if has(cur) and raid >= (meta_for().get("latest") or raid):
+        cur = pad_yosen_axis(cur, meta_for(raid)["schedules"])
     if has(cur):
         threading.Thread(target=ylog_save,
                          args=(raid, cur["keys"], cur["labels"],

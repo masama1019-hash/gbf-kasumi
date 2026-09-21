@@ -967,7 +967,7 @@ def gr_fetch(raid):
     now = time.time()
     with _cache_lock:
         hit = _cache.get(url)
-        if hit and now - hit[0] < (150 if hit[1] is not None else NEG_TTL):
+        if hit and now - hit[0] < (50 if hit[1] is not None else 60):
             return hit[1]
     try:
         # CDNが最大10分古いものを返す(max-age=600)ので、クエリで毎回取り直す
@@ -1096,7 +1096,7 @@ def pad_yosen_axis(cur, sched):
 
 
 def gr_loop():
-    """予選期間中(1日目19時〜2日目終了+1時間)は5分毎にgbfrankingを見て点を集め、
+    """予選期間中(1日目19時〜2日目終了+1時間)は1分毎にgbfrankingを見て点を集め、
     新しい点が入ったらアーカイブにも書く。期間外は30分毎に日程だけ見直す"""
     while True:
         wait = 1800
@@ -1109,7 +1109,7 @@ def gr_loop():
                 start = datetime.fromisoformat(days[1] + " 19:00").replace(tzinfo=now.tzinfo)
                 end = datetime.fromisoformat(days[2] + " 23:59").replace(tzinfo=now.tzinfo) + timedelta(hours=1, minutes=30)
                 if start <= now <= end:
-                    wait = 180
+                    wait = 60
                     if gr_collect(m["raid"], sched):
                         cur = ylog_get(m["raid"])          # アーカイブ優先(先に見えた点を残す)
                         merged = merge_yosen(cur, gr_series(m["raid"]))

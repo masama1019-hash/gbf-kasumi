@@ -1111,7 +1111,7 @@ def gr_loop():
                 if start <= now <= end:
                     wait = 180
                     if gr_collect(m["raid"], sched):
-                        cur = ylog_get(m["raid"])
+                        cur = ylog_get(m["raid"])          # アーカイブ優先(先に見えた点を残す)
                         merged = merge_yosen(cur, gr_series(m["raid"]))
                         ylog_save(m["raid"], merged["keys"], merged["labels"],
                                   merged["ours"]["cum"], merged["border"]["cum"])
@@ -1191,15 +1191,21 @@ def api_yosen(q):
     archived = pv_archived = False
     # gbfdataに無い時刻は gbfranking(メモリ) → アーカイブ(保存済み) の順で補う。
     # gbfdataが収集を始めていない初日(第84回で発生)でも、ここで予選が表示できる
-    gr = gr_series(raid)
-    if not gr and raid >= (meta_for().get("latest") or raid):   # 過去回はgbfdataが揃っているので見ない
-        gr_collect(raid, meta_for(raid)["schedules"])
+    # 優先順は gbfdata > アーカイブ > gbfranking(メモリ)。アーカイブには最初に見えた
+    # スナップショット(毎時0〜10分ごろ)が残っているので、再起動後に20分遅れの点で
+    # 上書きされないようにする
+    is_cur = raid >= (meta_for().get("latest") or raid)
+    if is_cur:
         gr = gr_series(raid)
-    cur = merge_yosen(cur, gr)
-    if not has(cur) or len(cur["keys"]) < len((ylog_get(raid) or {}).get("keys") or []):
+        if not gr:                                   # 過去回はgbfdataが揃っているので見ない
+            gr_collect(raid, meta_for(raid)["schedules"])
+            gr = gr_series(raid)
         cur = merge_yosen(cur, ylog_get(raid))
-    if has(cur) and raid >= (meta_for().get("latest") or raid):
-        cur = pad_yosen_axis(cur, meta_for(raid)["schedules"])
+        cur = merge_yosen(cur, gr)
+        if has(cur):
+            cur = pad_yosen_axis(cur, meta_for(raid)["schedules"])
+    elif not has(cur):
+        cur = merge_yosen(cur, ylog_get(raid))
     if has(cur):
         threading.Thread(target=ylog_save,
                          args=(raid, cur["keys"], cur["labels"],

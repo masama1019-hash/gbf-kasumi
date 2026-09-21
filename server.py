@@ -953,8 +953,8 @@ def yosen_series(raid, dates, ours_hint=120):
 # ---------- gbfranking フォールバック(予選) ----------
 # 2026-09-21 第84回初日: gbfdataが20時を過ぎても第84回の収集を始めず、予選タブが空のままだった。
 # gbfranking(ev084.gbfranking.com)は10分毎に団ランキング2500位ぶんを静的JSON(gzip)で公開して
-# いるので、そこから自団と300位を拾って毎時の点を補う。毎時 HH:05 のスナップショットを
-# 「HH:00」の値として扱う(5分ぶん多めに出るが、gbfdata未収録時のみの代替)。
+# いるので、そこから自団と300位を拾って毎時の点を補う。毎時0〜30分の最初のスナップショットを
+# 「HH:00」の値として扱う(数分ぶん多めに出るが、gbfdata未収録時のみの代替)。
 # 集めた点は予選アーカイブ(ylog)にも保存するので、再起動しても残る。
 _gr_points = {}            # raid → {key: {"o": 億, "r": 順位, "b": 億}}
 _gr_lock = threading.Lock()
@@ -987,14 +987,15 @@ def gr_fetch(raid):
 
 def gr_key(sched, at):
     """gbfrankingの時刻(実時間)を予選のキー("予選1日目の日付 HH:00"、深夜は25:00〜30:00)に。
-    HH:05(取り逃したら HH:15)のスナップショットを採用(それ以外は None)"""
+    スナップショットの時刻は 19:55, 20:05, 20:24 のように揃っていないので、毎時0〜30分の
+    最初に見えたものをその時刻の値にする(3分毎に見るので実際はほぼ0〜10分)"""
     days = {x["day_of"]: x["day"] for x in sched}
     d1, d2 = days.get(1), days.get(2)
     if not (d1 and d2 and at):
         return None
     date, hm = at.split(" ")
     h, m = int(hm[:2]), int(hm[3:5])
-    if m > 15:
+    if m > 30:
         return None
     if date == d1 and h >= 19:
         return f"{d1} {h:02d}:00"

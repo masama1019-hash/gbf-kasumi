@@ -174,7 +174,7 @@
       </span>
     </div>
   </div>
-  <div id="liveBody"><div class="load">「更新」を押すと集計します（初回は30秒ほどかかります）</div></div>
+  <div id="liveBody"><div class="load">最新データを取得中…（初回は30秒ほどかかります）</div></div>
 </div>
 
 <div id="pane-scout" class="hide">
@@ -441,6 +441,9 @@ async function init(raid){
   fillDates();
   fillKoranDays();
   renderKoranMem();      // 一覧の既定はcfg.membersなので、設定が届いてから作る
+  // 開いた時点で最新を出す(「更新」を押さなくてよい 2026-09-21)。本戦日で相手が保存されて
+  // いないときは集計できないので従来どおり入力待ち
+  if(!raid && ($('#dateSel').value==='yosen' || $('#oppInput').value.trim())) loadLive();
 }
 // 時刻表示: 日をまたいだ25〜30時は 1〜6時 と表す(24:00はそのまま24)
 const hLbl=t=>{const h=parseInt(t);return String(h>24?h-24:h);};

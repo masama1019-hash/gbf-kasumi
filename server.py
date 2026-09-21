@@ -2078,9 +2078,16 @@ def ylog_save(raid, keys, labels, ours_cum, border_cum, ours_rank=None):
     m = dict(log_map())
     old = m.get(key)
     if old:
-        # 保存済みの順位は残す(新しい側で欠けていても消さない)
-        om = {k: v for k, v in zip(old.get("k") or [], old.get("r") or []) if v is not None}
-        r = [rv if rv is not None else om.get(k) for k, rv in zip(keys, r)]
+        # 保存済みの値はキー単位で残す(新しい側で欠けていても消さない)。
+        # ⚠️ 2026-09-21に o/b だけこの保護が無く、gbfdataが第84回の収集を22時から始めた
+        # (20・21時は元々収録が無い)ときに合計点数が増えたためガードを通過し、
+        # 20・21時の値がまるごと消えた。r(順位)は元から by-key で保護していた
+        def by_key(old_arr):
+            return {k: v for k, v in zip(old.get("k") or [], old_arr or []) if v is not None}
+        oo, ob, orn = by_key(old.get("o")), by_key(old.get("b")), by_key(old.get("r"))
+        o = [v if v is not None else oo.get(k) for k, v in zip(keys, o)]
+        b = [v if v is not None else ob.get(k) for k, v in zip(keys, b)]
+        r = [v if v is not None else orn.get(k) for k, v in zip(keys, r)]
         if (_measured(old.get("o")) >= _measured(o) and _measured(old.get("b")) >= _measured(b)
                 and _measured(old.get("r")) >= _measured(r)):
             return

@@ -950,6 +950,162 @@ def yosen_series(raid, dates, ours_hint=120):
             "border": {"cum": b_cum, "speed": speed(b_cum)}}
 
 
+# ---------- gbfranking フォールバック(予選) ----------
+# 2026-09-21 第84回初日: gbfdataが20時を過ぎても第84回の収集を始めず、予選タブが空のままだった。
+# gbfranking(ev084.gbfranking.com)は10分毎に団ランキング2500位ぶんを静的JSON(gzip)で公開して
+# いるので、そこから自団と300位を拾って毎時の点を補う。毎時 HH:05 のスナップショットを
+# 「HH:00」の値として扱う(5分ぶん多めに出るが、gbfdata未収録時のみの代替)。
+# 集めた点は予選アーカイブ(ylog)にも保存するので、再起動しても残る。
+_gr_points = {}            # raid → {key: {"o": 億, "r": 順位, "b": 億}}
+_gr_lock = threading.Lock()
+
+
+def gr_fetch(raid):
+    """gbfrankingの最新団ランキング。{"at": "YYYY-MM-DD HH:MM", "guilds": [...]} or None"""
+    import gzip
+    url = f"https://ev{raid:03d}.gbfranking.com/guild-data.json.gz"
+    now = time.time()
+    with _cache_lock:
+        hit = _cache.get(url)
+        if hit and now - hit[0] < (150 if hit[1] is not None else NEG_TTL):
+            return hit[1]
+    try:
+        # CDNが最大10分古いものを返す(max-age=600)ので、クエリで毎回取り直す
+        req = urllib.request.Request(url + f"?t={int(now)}", headers={"User-Agent": "Mozilla/5.0"})
+        raw = urllib.request.urlopen(req, timeout=25).read()
+        d = json.loads(gzip.decompress(raw))
+        lk = next(k for k in d if k.startswith("/api/guild/ranking/latest"))
+        r = d[lk]
+        out = {"at": r.get("after"), "guilds": [
+            {"gid": g.get("guild_id"), "rank": g.get("rank"), "point": g.get("score")}
+            for g in r.get("guilds") or []]}
+    except Exception:
+        out = None
+    _cache_put(url, now, out)
+    return out
+
+
+def gr_key(sched, at):
+    """gbfrankingの時刻(実時間)を予選のキー("予選1日目の日付 HH:00"、深夜は25:00〜30:00)に。
+    HH:05(取り逃したら HH:15)のスナップショットを採用(それ以外は None)"""
+    days = {x["day_of"]: x["day"] for x in sched}
+    d1, d2 = days.get(1), days.get(2)
+    if not (d1 and d2 and at):
+        return None
+    date, hm = at.split(" ")
+    h, m = int(hm[:2]), int(hm[3:5])
+    if m > 15:
+        return None
+    if date == d1 and h >= 19:
+        return f"{d1} {h:02d}:00"
+    if date == d2 and h < 7:
+        return f"{d1} {h + 24:02d}:00"
+    if date == d2 and 7 <= h <= 23:
+        return f"{d2} {h:02d}:00"
+    if date > d2 and h == 0:
+        return f"{d2} 24:00"
+    return None
+
+
+def gr_collect(raid, sched):
+    """gbfrankingから1点拾って _gr_points に足す。新しい点が入ったら True"""
+    r = gr_fetch(raid)
+    if not r:
+        return False
+    key = gr_key(sched, r["at"])
+    if not key:
+        return False
+    ours = next((g for g in r["guilds"] if g["gid"] == OURS_GID), None)
+    b300 = next((g for g in r["guilds"] if g["rank"] == 300), None)
+    if not (ours or b300):
+        return False
+    pt = {}
+    if ours and ours["point"] is not None:
+        pt["o"], pt["r"] = round(ours["point"] / 1e8, 1), ours["rank"]
+    if b300 and b300["point"] is not None:
+        pt["b"] = round(b300["point"] / 1e8, 1)
+    with _gr_lock:
+        cur = _gr_points.setdefault(raid, {})
+        if key in cur:
+            return False
+        cur[key] = pt
+    return True
+
+
+def gr_series(raid):
+    """_gr_points を yosen_series と同じ形に(キーは日付→時刻順)"""
+    with _gr_lock:
+        pts = dict(_gr_points.get(raid) or {})
+    if not pts:
+        return None
+    keys = sorted(pts, key=lambda k: (k.split(" ")[0], int(k.split(" ")[1].split(":")[0])))
+    oc = {k: v["o"] for k, v in pts.items() if "o" in v}
+    orank = {k: v["r"] for k, v in pts.items() if "r" in v}
+    bc = {k: v["b"] for k, v in pts.items() if "b" in v}
+
+    def spd(cum):
+        out, prev = {}, 0.0
+        for k in keys:
+            if k in cum:
+                out[k] = round(cum[k] - prev, 1)
+                prev = cum[k]
+        return out
+    return {"keys": keys, "labels": [hour_label(k.split(" ")[1]) for k in keys],
+            "ours": {"cum": oc, "rank": orank, "speed": spd(oc)},
+            "border": {"cum": bc, "speed": spd(bc)}}
+
+
+def merge_yosen(base, extra):
+    """gbfdataの系列(base)に無いキーを extra(gbfranking/アーカイブ)で補う。速度は結合後に引き直す"""
+    if not extra:
+        return base
+    if not base or not base.get("keys"):
+        base = {"keys": [], "labels": [], "ours": {"cum": {}, "rank": {}, "speed": {}},
+                "border": {"cum": {}, "speed": {}}}
+    keys = set(base["keys"]) | set(extra["keys"])
+    keys = sorted(keys, key=lambda k: (k.split(" ")[0], int(k.split(" ")[1].split(":")[0])))
+    oc = dict(extra["ours"]["cum"]); oc.update(base["ours"]["cum"])
+    orank = dict(extra["ours"].get("rank") or {}); orank.update(base["ours"].get("rank") or {})
+    bc = dict(extra["border"]["cum"]); bc.update(base["border"]["cum"])
+    keys = [k for k in keys if k in oc or k in bc]
+
+    def spd(cum):
+        out, prev = {}, 0.0
+        for k in keys:
+            if k in cum:
+                out[k] = round(cum[k] - prev, 1)
+                prev = cum[k]
+        return out
+    return {"keys": keys, "labels": [hour_label(k.split(" ")[1]) for k in keys],
+            "ours": {"cum": oc, "rank": orank, "speed": spd(oc)},
+            "border": {"cum": bc, "speed": spd(bc)}}
+
+
+def gr_loop():
+    """予選期間中(1日目19時〜2日目終了+1時間)は5分毎にgbfrankingを見て点を集め、
+    新しい点が入ったらアーカイブにも書く。期間外は30分毎に日程だけ見直す"""
+    while True:
+        wait = 1800
+        try:
+            m = meta_for()
+            sched = m["schedules"]
+            days = {x["day_of"]: x["day"] for x in sched}
+            now = datetime.now(timezone(timedelta(hours=9)))
+            if days.get(1) and days.get(2):
+                start = datetime.fromisoformat(days[1] + " 19:00").replace(tzinfo=now.tzinfo)
+                end = datetime.fromisoformat(days[2] + " 23:59").replace(tzinfo=now.tzinfo) + timedelta(hours=1, minutes=30)
+                if start <= now <= end:
+                    wait = 180
+                    if gr_collect(m["raid"], sched):
+                        cur = ylog_get(m["raid"])
+                        merged = merge_yosen(cur, gr_series(m["raid"]))
+                        ylog_save(m["raid"], merged["keys"], merged["labels"],
+                                  merged["ours"]["cum"], merged["border"]["cum"])
+        except Exception:
+            pass
+        time.sleep(wait)
+
+
 ELEM_JA = {"fire": "火有利", "water": "水有利", "earth": "土有利",
            "wind": "風有利", "light": "光有利", "dark": "闇有利"}
 WDAY = "月火水木金土日"
@@ -1019,6 +1175,15 @@ def api_yosen(q):
     def has(x):
         return bool(x) and bool(x["ours"]["cum"] or x["border"]["cum"])
     archived = pv_archived = False
+    # gbfdataに無い時刻は gbfranking(メモリ) → アーカイブ(保存済み) の順で補う。
+    # gbfdataが収集を始めていない初日(第84回で発生)でも、ここで予選が表示できる
+    gr = gr_series(raid)
+    if not gr and raid >= (meta_for().get("latest") or raid):   # 過去回はgbfdataが揃っているので見ない
+        gr_collect(raid, meta_for(raid)["schedules"])
+        gr = gr_series(raid)
+    cur = merge_yosen(cur, gr)
+    if not has(cur) or len(cur["keys"]) < len((ylog_get(raid) or {}).get("keys") or []):
+        cur = merge_yosen(cur, ylog_get(raid))
     if has(cur):
         threading.Thread(target=ylog_save,
                          args=(raid, cur["keys"], cur["labels"],
@@ -2024,4 +2189,5 @@ class Handler(BaseHTTPRequestHandler):
 if __name__ == "__main__":
     print(f"グラブル古戦場サポート  →  http://localhost:{PORT}")
     threading.Thread(target=prewarm_loop, daemon=True).start()
+    threading.Thread(target=gr_loop, daemon=True).start()
     ThreadingHTTPServer(("0.0.0.0", PORT), Handler).serve_forever()

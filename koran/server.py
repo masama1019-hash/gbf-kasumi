@@ -214,11 +214,22 @@ def build(raid, uids):
     for i, uid in enumerate(uids):
         u = byuid.get(uid) or {}
         cum, rank = series(u.get("points"))
-        members.append({"uid": uid, "name": u.get("name") or str(uid),
+        # 今回まだ記録が無い人(開始直後などランキング圏外)は名前も空で返るので、
+        # 直近の履歴から名前だけ引く(表示がIDのままにならないように)
+        name = u.get("name") or user_name(uid) or str(uid)
+        members.append({"uid": uid, "name": name,
                         "level": u.get("level"), "color": MCOLORS[i % len(MCOLORS)],
                         "cum": cum, "rank": rank, "daily": daily(u.get("points"))})
     return {"raid": raid, "keys": keys, "labels": [hour_label(k.split(" ")[1]) for k in keys],
             "days": days, "lines": lines, "members": members}
+
+
+def user_name(uid):
+    """今回の開催にまだ記録が無い人の名前を、直近の履歴(1ページ=直近3回)から引く。
+    24時間キャッシュ(改名は稀なので長め)"""
+    d = get(f"{GBF}/users/{uid}/histories?page=1", ttl=86400)
+    rows = (d or {}).get("data") or []
+    return rows[0].get("name") if rows else None
 
 
 def last_key(cum, keys):

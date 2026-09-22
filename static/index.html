@@ -1137,7 +1137,11 @@ function koranHero(o){
         <div class="st">${rank?rank.toLocaleString('ja-JP')+'位':''}${label?`　<span class="k" style="font-weight:400">${label}時点</span>`:''}</div>
         <div class="bar"><i style="width:${(player??0)/mx*100}%;background:var(--blue)"></i></div>
         ${s2?bar(b2000,'var(--red)'):''}${s1?bar(b100k,'var(--green)'):''}
-        <div class="sub">本人 ${f1(player)}億${s2?` ／ 英雄(2000位) ${f1(b2000)}億`:''}${s1?` ／ 10万位 ${f1(b100k)}億`:''}</div>
+        <div class="chips">
+          <span class="chip"><i style="background:var(--blue)"></i><span class="k">本人</span>${f1(player)}億</span>
+          ${s2?`<span class="chip"><i style="background:var(--red)"></i><span class="k">英雄(2000位)</span>${f1(b2000)}億</span>`:''}
+          ${s1?`<span class="chip"><i style="background:var(--green)"></i><span class="k">10万位</span>${f1(b100k)}億</span>`:''}
+        </div>
       </div>
       ${proj!=null?`<div class="heroWin"><div class="k">${confirmed?'着地':'着地目安'}</div>
         <div class="v">${f1(proj)}<span style="font-size:14px;color:var(--mut)">億</span></div>

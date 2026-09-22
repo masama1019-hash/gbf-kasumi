@@ -2136,31 +2136,42 @@ def ylog_save(raid, keys, labels, ours_cum, border_cum, ours_rank=None):
     """予選の毎時ログ。本戦と同じセルにキー「開催回|yosen」で入れる。
     予選のキーは "2026-06-21 20:00" 形式で本戦の "HH:00" と違い、時刻の並びも
     回によって変わるので、keys と表示用の labels を一緒に持つ。
-    自団の順位("r")も持つ(予選は29点なので量は気にならない。2026-09-21 再起動後に
-    アーカイブから戻した点の順位が空欄になったため追加)"""
+    自団の順位("r")も持つ(予選は29点なので量は気にならない)。
+
+    ⚠️ 保存は常に「旧キー ∪ 新キー」の和集合に対する by-key マージにする。
+    2026-09-21、呼び出し元(gbfranking巡回 or 画面のリクエスト)ごとに渡す keys が
+    違う(パディング済みの全時刻 / 実測分だけの部分集合)ため、渡された keys の範囲
+    でしか値を引き継がない実装だと、古いキーが新しい keys に含まれないだけで
+    アーカイブの "k" 配列ごとその時刻が消えてしまい、20・21時が繰り返し失われた。
+    和集合にすれば、どの呼び出し元が先でも既知の値は絶対に減らない"""
     key = f"{raid}|yosen"
-    o = [ours_cum.get(k) for k in keys]
-    b = [border_cum.get(k) for k in keys]
-    r = [(ours_rank or {}).get(k) for k in keys]
-    if not (_measured(o) or _measured(b)):
+    new_o = dict(zip(keys, [ours_cum.get(k) for k in keys]))
+    new_b = dict(zip(keys, [border_cum.get(k) for k in keys]))
+    new_r = dict(zip(keys, [(ours_rank or {}).get(k) for k in keys]))
+    if not (_measured(list(new_o.values())) or _measured(list(new_b.values()))):
         return
     m = dict(log_map())
     old = m.get(key)
     if old:
-        # 保存済みの値はキー単位で残す(新しい側で欠けていても消さない)。
-        # ⚠️ 2026-09-21に o/b だけこの保護が無く、gbfdataが第84回の収集を22時から始めた
-        # (20・21時は元々収録が無い)ときに合計点数が増えたためガードを通過し、
-        # 20・21時の値がまるごと消えた。r(順位)は元から by-key で保護していた
-        def by_key(old_arr):
-            return {k: v for k, v in zip(old.get("k") or [], old_arr or []) if v is not None}
-        oo, ob, orn = by_key(old.get("o")), by_key(old.get("b")), by_key(old.get("r"))
-        o = [v if v is not None else oo.get(k) for k, v in zip(keys, o)]
-        b = [v if v is not None else ob.get(k) for k, v in zip(keys, b)]
-        r = [v if v is not None else orn.get(k) for k, v in zip(keys, r)]
+        old_keys = old.get("k") or []
+        old_o = dict(zip(old_keys, old.get("o") or []))
+        old_b = dict(zip(old_keys, old.get("b") or []))
+        old_r = dict(zip(old_keys, old.get("r") or []))
+        all_keys = sorted(set(old_keys) | set(keys),
+                          key=lambda k: (k.split(" ")[0], int(k.split(" ")[1].split(":")[0])))
+        o = [new_o.get(k) if new_o.get(k) is not None else old_o.get(k) for k in all_keys]
+        b = [new_b.get(k) if new_b.get(k) is not None else old_b.get(k) for k in all_keys]
+        r = [new_r.get(k) if new_r.get(k) is not None else old_r.get(k) for k in all_keys]
         if (_measured(old.get("o")) >= _measured(o) and _measured(old.get("b")) >= _measured(b)
                 and _measured(old.get("r")) >= _measured(r)):
             return
-    m[key] = {"k": list(keys), "l": list(labels), "o": o, "b": b, "r": r}
+        lbs = [hour_label(k.split(" ")[1]) for k in all_keys]
+    else:
+        all_keys, lbs = list(keys), list(labels)
+        o = [new_o.get(k) for k in all_keys]
+        b = [new_b.get(k) for k in all_keys]
+        r = [new_r.get(k) for k in all_keys]
+    m[key] = {"k": all_keys, "l": lbs, "o": o, "b": b, "r": r}
     saved = _gas({"cell": GAS_CELL_LOG, "value": json.dumps(m, ensure_ascii=False,
                                                             separators=(",", ":"))})
     if saved and saved.get("status") == "ok":

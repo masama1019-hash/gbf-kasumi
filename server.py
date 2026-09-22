@@ -1813,12 +1813,25 @@ def api_koran(q):
         return {"error": "この回の個人データはgbfdataに未収録です（古い開催回では個人の記録が残っていません）"}
 
     cur_player = {do: round(ev[do]["point"] / 1e8, 1) for do in ev}
+    cur_rank = {do: ev[do]["rank"] for do in ev}
+    # gbfdataの histories(日別確定値) は開催中の当日ぶんが更新されるまで数時間ラグがある
+    # (ボーダー3本は毎時の users/borders から取るので当日でも新しい)。ボーダー側に
+    # 値があるのに本人だけ無い日は、同じ毎時APIから本人の最新時刻を拾って埋める
+    missing_do = (set(b2000) | set(b100k)) - set(cur_player)
+    if missing_do:
+        hp = user_hourly_points(raid, uid) or {}
+        day_of_date = {s["day_of"]: s["day"] for s in meta_for(raid)["schedules"]}
+        for do in missing_do:
+            pts = hp.get(day_of_date.get(do)) or {}
+            if pts:
+                last_t = sorted(pts, key=lambda t: int(t.split(":")[0]))[-1]
+                cur_player[do], cur_rank[do] = pts[last_t]
     rows = []
-    for do in sorted(set(ev) | set(b2000) | set(b100k)):
+    for do in sorted(set(ev) | set(b2000) | set(b100k) | set(cur_player)):
         pl = cur_player.get(do)
         v2, v1 = b2000.get(do), b100k.get(do)
         rows.append({"label": KORAN_LABELS.get(do, str(do)), "day_of": do,
-                     "player": pl, "rank": ev[do]["rank"] if do in ev else None,
+                     "player": pl, "rank": cur_rank.get(do),
                      "b2000": v2, "b100k": v1,
                      "vs2000": round(pl - v2, 1) if (pl is not None and v2 is not None) else None,
                      "vs100k": round(pl - v1, 1) if (pl is not None and v1 is not None) else None})

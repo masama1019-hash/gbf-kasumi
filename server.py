@@ -1866,18 +1866,22 @@ def api_koran(q):
     # ⚠️ ここの hint はこの関数冒頭の時刻毎モード(day指定時)のローカル変数と同名だが別物。
     #    このブランチは day 未指定なので、現在順位(無ければ既定3000)を使う
     yosen_hint = cur_rank.get(anchor) or 3000
-    yosen_hourly = koran_yosen_series(raid, uid, yosen_hint) if anchor is None or anchor <= 3 else None
+    yosen_hourly = (koran_yosen_series(raid, uid, yosen_hint, pad=not confirmed)
+                    if anchor is None or anchor <= 3 else None)
     return {"name": pname, "user_id": uid, "url": f"https://gbfdata.com/user/{uid}",
             "raid": raid, "rows": rows, "latest": rows[-1] if rows else None, "proj": proj,
             "yosen_hourly": yosen_hourly,
             "past3": koran_past3(uid, raid, hist), "confirmed": confirmed}
 
 
-def koran_yosen_series(raid, uid, hint=3000):
+def koran_yosen_series(raid, uid, hint=3000, pad=False):
     """予選(1,2日目)を通しで1時間毎の 本人 と 英雄(2000位)・10万位 の累積(億)。
     団の予選タブと同じ考え方の個人版。user_hourly_points と users/borders の
     ボーダー系列はどちらも raid 指定だけで全期間ぶんが1回のリクエストで返るので、
-    日をまたいでも新たな探索は要らない(直近2回ぶんのみ・古い回は None)"""
+    日をまたいでも新たな探索は要らない(直近2回ぶんのみ・古い回は None)。
+    pad=True(開催中)なら横軸を予選の全時刻(1日目20〜30時・2日目7〜24時)まで伸ばす。
+    予選は19時開始だが、gbfdataの収録が遅れて始まる回があり(第84回で発生)、
+    そのとき軸が実データの初出時刻からしか始まらず短く見えるため"""
     m = meta_for(raid)
     sch = {s["day_of"]: s["day"] for s in m["schedules"]}
     d1, d2 = sch.get(1), sch.get(2)
@@ -1900,8 +1904,10 @@ def koran_yosen_series(raid, uid, hint=3000):
             p_cum[f"{date} {t}"], p_rank[f"{date} {t}"] = cum, rank
     if not (p_cum or b2000 or b100k):
         return None
-    keys = sorted(set(p_cum) | set(b2000) | set(b100k),
-                  key=lambda k: (k.split(" ")[0], int(k.split(" ")[1].split(":")[0])))
+    keys = set(p_cum) | set(b2000) | set(b100k)
+    if pad:
+        keys |= {f"{d1} {h:02d}:00" for h in range(20, 31)} | {f"{d2} {h:02d}:00" for h in range(7, 25)}
+    keys = sorted(keys, key=lambda k: (k.split(" ")[0], int(k.split(" ")[1].split(":")[0])))
 
     def spd(cum):
         out, prev = {}, 0.0

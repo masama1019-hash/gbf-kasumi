@@ -11,6 +11,7 @@
 
 起動:  python3 /Applications/gbf/sunatsu/server.py   → http://localhost:8931
 """
+import gzip
 import json
 import os
 import threading
@@ -177,6 +178,65 @@ def daily(points):
     return out
 
 
+# ---------- gbfranking フォールバック(予選の早い時間) ----------
+# gbfdataの収集開始が遅れる回があり(第84回で発生、22時から)、19〜21時台は
+# gbfdataに存在しない。gbfrankingは開催中の各日ぶんの20分間隔スナップショットを
+# 丸ごと日別ファイルで公開しているので、そこから199時〜のデータを補う。
+# ⚠️ gbfrankingの個人ランキングは上位1万人までしか載らないため、英雄(2000位)は
+#    拾えるが、10万位・15万位(圏外)は補えない
+_gr_day_cache = {}
+_gr_day_lock = threading.Lock()
+
+
+def gr_day_fetch(raid, date):
+    """その日の20分間隔スナップショット一覧(afterでソート済み)。取得できなければNone"""
+    url = f"https://ev{raid:03d}.gbfranking.com/snap-{date}.json.gz"
+    now = time.time()
+    with _gr_day_lock:
+        hit = _gr_day_cache.get(url)
+        if hit and now - hit[0] < 1800:
+            return hit[1]
+    try:
+        req = urllib.request.Request(url + f"?t={int(now)}", headers={"User-Agent": "Mozilla/5.0"})
+        raw = urllib.request.urlopen(req, timeout=25).read()
+        d = json.loads(gzip.decompress(raw))
+        snaps = sorted(d.values(), key=lambda v: v.get("after") or "")
+    except Exception:
+        snaps = None
+    with _gr_day_lock:
+        _gr_day_cache[url] = (now, snaps)
+    return snaps
+
+
+def gr_fill(raid, d1, d2, uids):
+    """{"HH:00" 相当のキー("日付 時刻") : {"b2000": 億, uid: 億}} を集めて返す。
+    毎時0〜30分の最初のスナップショットをその時刻の値として採用する(団の予選タブと同じ考え方)"""
+    out = {}
+    for date in (d1, d2):
+        snaps = gr_day_fetch(raid, date)
+        if not snaps:
+            continue
+        seen_hours = set()
+        for sn in snaps:
+            after = sn.get("after") or ""
+            if not after.startswith(date):
+                continue
+            hh, mm = after[11:13], after[14:16]
+            if int(mm) > 30 or hh in seen_hours:
+                continue
+            seen_hours.add(hh)
+            key = f"{date} {hh}:00"
+            row = {}
+            for p in sn.get("players") or []:
+                if p.get("rank") == 2000 and p.get("honor") is not None:
+                    row["b2000"] = round(p["honor"] / 1e8, 1)
+                if p.get("player_id") in uids and p.get("honor") is not None:
+                    row[p["player_id"]] = round(p["honor"] / 1e8, 1)
+            if row:
+                out[key] = row
+    return out
+
+
 def build(raid, uids, sched=None):
     d = fetch(raid, uids)
     if not d:
@@ -192,6 +252,7 @@ def build(raid, uids, sched=None):
     # 予選は19時開始だが、gbfdataの収録開始が遅れる回があり(第84回で発生)、そのときは
     # 実データの初出時刻からしか軸が始まらず短く見える。開催中(sched指定時)は
     # 予選1・2日目ぶんの全時刻(20〜30時・7〜24時)を軸に足しておく(値はデータが無ければ空欄)
+    gr = {}
     if sched:
         days = {x["day_of"]: x["day"] for x in sched}
         d1, d2 = days.get(1), days.get(2)
@@ -201,6 +262,9 @@ def build(raid, uids, sched=None):
             for h in range(7, 25):
                 seen.add(f"{d2} {h:02d}:00")
             keys = list(seen)
+            # gbfdataに無い早い時間帯(第84回は20・21時)をgbfrankingで補う。
+            # 英雄(2000位)は上位1万人以内なので拾えるが、10万位・15万位は圏外で補えない
+            gr = gr_fill(raid, d1, d2, set(uids))
     keys.sort()                                 # "YYYY-MM-DD HH:MM" は辞書順=時系列
 
     days, seenday = [], set()
@@ -218,6 +282,10 @@ def build(raid, uids, sched=None):
     for r, label, color in LINES:
         s = byrank.get(r) or {}
         cum, _ = series(s.get("points"))
+        if r == 2000:                            # gbfrankingで拾えるのは英雄ラインだけ
+            for k, row in gr.items():
+                if k not in cum and "b2000" in row:
+                    cum[k] = row["b2000"]
         lines.append({"rank": r, "label": label, "color": color,
                       "cum": cum, "daily": daily(s.get("points"))})
 
@@ -226,6 +294,9 @@ def build(raid, uids, sched=None):
     for i, uid in enumerate(uids):
         u = byuid.get(uid) or {}
         cum, rank = series(u.get("points"))
+        for k, row in gr.items():                # gbfdataに無い早い時間帯をgbfrankingで補う
+            if k not in cum and uid in row:
+                cum[k] = row[uid]
         # 今回まだ記録が無い人(開始直後などランキング圏外)は名前も空で返るので、
         # 直近の履歴から名前だけ引く(表示がIDのままにならないように)
         name = u.get("name") or user_name(uid) or str(uid)

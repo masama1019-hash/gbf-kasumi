@@ -213,27 +213,34 @@ def gr_fill(raid, d1, d2, uids):
     毎時0〜30分の最初のスナップショットをその時刻の値として採用する(団の予選タブと同じ考え方)"""
     out = {}
     for date in (d1, d2):
-        snaps = gr_day_fetch(raid, date)
-        if not snaps:
-            continue
-        seen_hours = set()
-        for sn in snaps:
-            after = sn.get("after") or ""
-            if not after.startswith(date):
+        try:
+            snaps = gr_day_fetch(raid, date)
+            if not snaps:
                 continue
-            hh, mm = after[11:13], after[14:16]
-            if int(mm) > 30 or hh in seen_hours:
-                continue
-            seen_hours.add(hh)
-            key = f"{date} {hh}:00"
-            row = {}
-            for p in sn.get("players") or []:
-                if p.get("rank") == 2000 and p.get("honor") is not None:
-                    row["b2000"] = round(p["honor"] / 1e8, 1)
-                if p.get("player_id") in uids and p.get("honor") is not None:
-                    row[p["player_id"]] = round(p["honor"] / 1e8, 1)
-            if row:
-                out[key] = row
+            seen_hours = set()
+            for sn in snaps:
+                after = sn.get("after") or ""
+                # "YYYY-MM-DD HH:MM:SS" 形式が崩れている(欠損・打ち切り)ケースに備える。
+                # ここは補助データなので、1件おかしくても全体を落とさない
+                if not (after.startswith(date) and len(after) >= 16):
+                    continue
+                hh, mm = after[11:13], after[14:16]
+                if not (hh.isdigit() and mm.isdigit()):
+                    continue
+                if int(mm) > 30 or hh in seen_hours:
+                    continue
+                seen_hours.add(hh)
+                key = f"{date} {hh}:00"
+                row = {}
+                for p in sn.get("players") or []:
+                    if p.get("rank") == 2000 and p.get("honor") is not None:
+                        row["b2000"] = round(p["honor"] / 1e8, 1)
+                    if p.get("player_id") in uids and p.get("honor") is not None:
+                        row[p["player_id"]] = round(p["honor"] / 1e8, 1)
+                if row:
+                    out[key] = row
+        except Exception:
+            pass
     return out
 
 
@@ -263,8 +270,12 @@ def build(raid, uids, sched=None):
                 seen.add(f"{d2} {h:02d}:00")
             keys = list(seen)
             # gbfdataに無い早い時間帯(第84回は20・21時)をgbfrankingで補う。
-            # 英雄(2000位)は上位1万人以内なので拾えるが、10万位・15万位は圏外で補えない
-            gr = gr_fill(raid, d1, d2, set(uids))
+            # 英雄(2000位)は上位1万人以内なので拾えるが、10万位・15万位は圏外で補えない。
+            # ベストエフォートの補助データなので、失敗しても本編の表示は止めない
+            try:
+                gr = gr_fill(raid, d1, d2, set(uids))
+            except Exception:
+                gr = {}
     keys.sort()                                 # "YYYY-MM-DD HH:MM" は辞書順=時系列
 
     days, seenday = [], set()

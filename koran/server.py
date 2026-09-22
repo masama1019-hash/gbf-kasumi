@@ -177,7 +177,7 @@ def daily(points):
     return out
 
 
-def build(raid, uids):
+def build(raid, uids, sched=None):
     d = fetch(raid, uids)
     if not d:
         return None
@@ -189,6 +189,18 @@ def build(raid, uids):
             if k not in seen:
                 seen.add(k)
                 keys.append(k)
+    # 予選は19時開始だが、gbfdataの収録開始が遅れる回があり(第84回で発生)、そのときは
+    # 実データの初出時刻からしか軸が始まらず短く見える。開催中(sched指定時)は
+    # 予選1・2日目ぶんの全時刻(20〜30時・7〜24時)を軸に足しておく(値はデータが無ければ空欄)
+    if sched:
+        days = {x["day_of"]: x["day"] for x in sched}
+        d1, d2 = days.get(1), days.get(2)
+        if d1 and d2:
+            for h in range(20, 31):
+                seen.add(f"{d1} {h:02d}:00")
+            for h in range(7, 25):
+                seen.add(f"{d2} {h:02d}:00")
+            keys = list(seen)
     keys.sort()                                 # "YYYY-MM-DD HH:MM" は辞書順=時系列
 
     days, seenday = [], set()
@@ -346,7 +358,7 @@ def api_board(q):
         raid = meta["latest"]
 
     with ThreadPoolExecutor(max_workers=2) as ex:
-        fc = ex.submit(build, raid, uids)
+        fc = ex.submit(build, raid, uids, meta["schedules"] if raid == meta["latest"] else None)
         fp = ex.submit(build, raid - 1, uids)
         cur, prev = fc.result(), fp.result()
     if not cur:

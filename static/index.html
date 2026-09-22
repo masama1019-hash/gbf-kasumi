@@ -1308,6 +1308,17 @@ async function loadKoran(){
     ${koranPast3Html(d.past3,s2,s1,d.name)}
     <div id="koranHourBox"></div>`;
   loadKoranHour(q, koranTargetDay(d.rows), d.name, s2, s1);
+  // 予選期間中(yosen_hourlyがある)は1時間毎の通しグラフ、本戦が始まったら従来どおり日毎の2〜4点
+  const yh=d.yosen_hourly;
+  if(yh&&yh.keys.length){
+    const Lh=yh.labels, pc=yh.player.cum, bc2=yh.b2000.cum, bc1=yh.b100k.cum;
+    mkChart('#kCum','line',Lh,[
+      {label:d.name,data:yh.keys.map(k=>pc[k]??null),borderColor:'#378ADD',area:'3d',endLabel:true,tension:.35,pointRadius:0,borderWidth:2,spanGaps:true},
+      ...(s2?[{label:'英雄(2000位)',data:yh.keys.map(k=>bc2[k]??null),borderColor:'#D85A30',endLabel:true,tension:.35,pointRadius:0,borderWidth:2,spanGaps:true}]:[]),
+      ...(s1?[{label:'10万位',data:yh.keys.map(k=>bc1[k]??null),borderColor:'#1D9E75',endLabel:true,tension:.35,pointRadius:0,borderWidth:2,spanGaps:true}]:[])
+    ]);
+    return;
+  }
   const Lx=d.rows.map(r=>r.label);
   mkChart('#kCum','line',Lx,[
     {label:d.name,data:d.rows.map(r=>r.player),borderColor:'#378ADD',area:'3d',endLabel:true,tension:0.35,borderWidth:2,pointRadius:0},

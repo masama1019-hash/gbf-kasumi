@@ -1861,9 +1861,59 @@ def api_koran(q):
             "vs2000": round(lp - l2, 1) if (lp is not None and l2 is not None) else None,
             "vs100k": round(lp - l1, 1) if (lp is not None and l1 is not None) else None,
             "day_of": anchor, "label": KORAN_LABELS.get(anchor, "") if anchor else ""}
+    # 予選期間中は「日毎の2点」より「1時間毎の通し」の方が推移が見える。
+    # 予選〜インターバル(day_of<=3)の間だけ画面側で使う(本戦が始まったら日毎のまま)
+    # ⚠️ ここの hint はこの関数冒頭の時刻毎モード(day指定時)のローカル変数と同名だが別物。
+    #    このブランチは day 未指定なので、現在順位(無ければ既定3000)を使う
+    yosen_hint = cur_rank.get(anchor) or 3000
+    yosen_hourly = koran_yosen_series(raid, uid, yosen_hint) if anchor is None or anchor <= 3 else None
     return {"name": pname, "user_id": uid, "url": f"https://gbfdata.com/user/{uid}",
             "raid": raid, "rows": rows, "latest": rows[-1] if rows else None, "proj": proj,
+            "yosen_hourly": yosen_hourly,
             "past3": koran_past3(uid, raid, hist), "confirmed": confirmed}
+
+
+def koran_yosen_series(raid, uid, hint=3000):
+    """予選(1,2日目)を通しで1時間毎の 本人 と 英雄(2000位)・10万位 の累積(億)。
+    団の予選タブと同じ考え方の個人版。user_hourly_points と users/borders の
+    ボーダー系列はどちらも raid 指定だけで全期間ぶんが1回のリクエストで返るので、
+    日をまたいでも新たな探索は要らない(直近2回ぶんのみ・古い回は None)"""
+    m = meta_for(raid)
+    sch = {s["day_of"]: s["day"] for s in m["schedules"]}
+    d1, d2 = sch.get(1), sch.get(2)
+    if not (d1 and d2):
+        return None
+    d = get(f"{GBF}/users/borders?raid_number={raid}", ttl=border_ttl(raid))
+    b2000, b100k = {}, {}
+    for s in (d or {}).get("data") or []:
+        tr = s.get("target_rank")
+        if tr not in (2000, 100000):
+            continue
+        tgt = b2000 if tr == 2000 else b100k
+        for pt in s.get("points") or []:
+            if pt.get("day") in (d1, d2) and pt.get("time") and pt.get("point") is not None:
+                tgt[f"{pt['day']} {pt['time']}"] = round(pt["point"] / 1e8, 1)
+    hp = user_hourly_points(raid, uid) or {}
+    p_cum, p_rank = {}, {}
+    for date in (d1, d2):
+        for t, (cum, rank) in (hp.get(date) or {}).items():
+            p_cum[f"{date} {t}"], p_rank[f"{date} {t}"] = cum, rank
+    if not (p_cum or b2000 or b100k):
+        return None
+    keys = sorted(set(p_cum) | set(b2000) | set(b100k),
+                  key=lambda k: (k.split(" ")[0], int(k.split(" ")[1].split(":")[0])))
+
+    def spd(cum):
+        out, prev = {}, 0.0
+        for k in keys:
+            if k in cum:
+                out[k] = round(cum[k] - prev, 1)
+                prev = cum[k]
+        return out
+    return {"keys": keys, "labels": [hour_label(k.split(" ")[1]) for k in keys],
+            "player": {"cum": p_cum, "rank": p_rank, "speed": spd(p_cum)},
+            "b2000": {"cum": b2000, "speed": spd(b2000)},
+            "b100k": {"cum": b100k, "speed": spd(b100k)}}
 
 
 def _prewarm_once(m, raid, members):

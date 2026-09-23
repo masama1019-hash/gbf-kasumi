@@ -24,6 +24,15 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 PORT = int(os.environ.get("PORT", 8931))
 BASE = os.path.dirname(os.path.abspath(__file__))
 STATIC = os.path.join(BASE, "static")
+
+# 本体アプリと同じスプレッドシート(団員DB)の「撤退」タブを、gbfdataが遅れて
+# 始まった予選の早い時間帯の"保存済み"バックアップの読み取り専用で使う。
+# 値は本体アプリのGAS_URL/GAS_SSIDと同じものをRenderの環境変数にコピーするだけ
+# (新しい秘密情報は増えない)。書き込みはしない(保存は別セッションで一度きり実施)
+GAS_URL = os.environ.get("GAS_URL", "")
+GAS_SSID = os.environ.get("GAS_SSID", "")
+GAS_SHEET = os.environ.get("GAS_SHEET", "撤退")
+GAS_CELL_KORAN = os.environ.get("GAS_CELL_KORAN", "A4")   # {"raid|koran_gr": {...}}
 GBF = "https://gbfdata.com/api"
 
 def _members():
@@ -177,6 +186,45 @@ def daily(points):
     return out
 
 
+# 予選が終われば値は二度と変わらない(確定)ので、gbfdataが未収録の早い時間帯(第84回は
+# 20・21時)は毎回問い合わせず、別セッションで一度だけ抽出・保存した小さいJSON
+# (団員DBの「撤退」タブ)を読むだけにする。読み取り専用・失敗しても本編は止めない
+_gr_archive_cache = {}
+_gr_archive_lock = threading.Lock()
+
+
+def _gas_read(rng):
+    if not (GAS_URL and GAS_SSID):
+        return None
+    try:
+        req = urllib.request.Request(
+            GAS_URL, data=json.dumps({"ssid": GAS_SSID, "sheet": GAS_SHEET, "read": rng}).encode(),
+            headers={"Content-Type": "application/json"})
+        return json.loads(urllib.request.urlopen(req, timeout=15).read())
+    except Exception:
+        return None
+
+
+def koran_archive_get(raid):
+    """{"HH:00"相当キー: {"b2000":億, "<uid>":[億,順位], ...}} または {}(未保存/失敗時)。
+    プロセス内キャッシュのみ(値は確定済みで変わらないため無期限に使い回してよい)"""
+    with _gr_archive_lock:
+        if raid in _gr_archive_cache:
+            return _gr_archive_cache[raid]
+    out = {}
+    try:
+        d = _gas_read(f"{GAS_CELL_KORAN}:{GAS_CELL_KORAN}")
+        raw = ((d or {}).get("values") or [[""]])[0][0]
+        if isinstance(raw, str) and raw.strip().startswith("{"):
+            m = json.loads(raw)
+            out = m.get(f"{raid}|koran_gr") or {}
+    except Exception:
+        out = {}
+    with _gr_archive_lock:
+        _gr_archive_cache[raid] = out
+    return out
+
+
 def build(raid, uids, sched=None):
     d = fetch(raid, uids)
     if not d:
@@ -202,6 +250,9 @@ def build(raid, uids, sched=None):
                 seen.add(f"{d2} {h:02d}:00")
             keys = list(seen)
     keys.sort()                                 # "YYYY-MM-DD HH:MM" は辞書順=時系列
+    # 予選が終わっていれば確定値なので、保存済みの小さいアーカイブから即座に補う
+    # (gbfdataがまだ持っていない時刻があっても、その場で問い合わせに行かない)
+    gr = koran_archive_get(raid) if sched else {}
 
     days, seenday = [], set()
     for s in (d.get("data") or []) + (d.get("users") or []):
@@ -218,6 +269,10 @@ def build(raid, uids, sched=None):
     for r, label, color in LINES:
         s = byrank.get(r) or {}
         cum, _ = series(s.get("points"))
+        if r == 2000:                            # アーカイブに入っているのは英雄ラインのみ
+            for k, row in gr.items():
+                if k not in cum and "b2000" in row:
+                    cum[k] = row["b2000"]
         lines.append({"rank": r, "label": label, "color": color,
                       "cum": cum, "daily": daily(s.get("points"))})
 
@@ -226,6 +281,10 @@ def build(raid, uids, sched=None):
     for i, uid in enumerate(uids):
         u = byuid.get(uid) or {}
         cum, rank = series(u.get("points"))
+        for k, row in gr.items():                # アーカイブにあれば早い時間帯を補う
+            v = row.get(str(uid))
+            if k not in cum and v is not None:
+                cum[k], rank[k] = v[0], v[1]
         # 今回まだ記録が無い人(開始直後などランキング圏外)は名前も空で返るので、
         # 直近の履歴から名前だけ引く(表示がIDのままにならないように)
         name = u.get("name") or user_name(uid) or str(uid)

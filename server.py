@@ -828,11 +828,14 @@ def api_scout_speed(q):
         rn, do, date, rows_, g, dflt = item
         ser = hourly_series(rn, date, day_base(rows_, rn, date), g, hint_of(rows_, rn, do, dflt))
         sp = _speeds(ser)
-        # 08:00は日始(前日終了からの差分でない)ので除外
-        vals = [v for t, v in sp.items() if t != "08:00" and v is not None and v > 0]
+        # 本戦は7時開始なので08:00も7→8時の正当な1時間ぶん(⚠️以前は日始として除外していたが、
+        # 開始直後は温存を吐き出す団が多く実際にここが最高時速になることが多い。除外すると
+        # 実際の最高値より低い値を「最高時速」として出してしまっていた。ライブ画面側は
+        # 2026-09-19頃に同じ理由で修正済みで、こちらは直し忘れていた)
+        vals = [v for t, v in sp.items() if v is not None and v > 0]
         if not vals:
             return None
-        peak = max(sp.items(), key=lambda kv: (kv[1] if kv[0] != "08:00" and kv[1] is not None else -1))
+        peak = max(sp.items(), key=lambda kv: (kv[1] if kv[1] is not None else -1))
         return {"max": round(max(vals), 1), "avg": round(sum(vals) / len(vals), 1), "peak_time": peak[0]}
 
     jobs = []

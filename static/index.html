@@ -1117,7 +1117,14 @@ function scoutSpeedTab(mode){
   mkChart('#scSpd','bar',SPD.L,[
     {label:'霞桜団',data:isMax?SPD.om:SPD.oa,bar:'#378ADD',borderRadius:4,borderSkipped:false},
     {label:SPD.oppName,data:isMax?SPD.pm:SPD.pa,bar:'#D85A30',borderRadius:4,borderSkipped:false}
-  ],{datasets:{bar:{categoryPercentage:.72,barPercentage:.92}}});
+  ],{indexAxis:'y',
+     // ⚠️ 横棒では axis:'y' が要る(ホバー選択がずれるため)
+     interaction:{mode:'index',intersect:false,axis:'y'},
+     datasets:{bar:{categoryPercentage:.6,barPercentage:.85}},
+     scales:{x:{grid:{color:'rgba(28,39,51,.05)',drawTicks:false},border:{display:false},
+                ticks:{color:'#68707a',font:{size:10},maxTicksLimit:5}},
+              y:{grid:{display:false},border:{color:'rgba(28,39,51,.10)'},
+                ticks:{color:'#1c2733',font:{size:10.5}}}}});
 }
 // 個ランの判断バンド。ライブ・サーチ・予選と同じ構成に揃える。
 // 左=本人の累積、中=本人と2本のラインの比較バー、右=着地、下帯=到達判定

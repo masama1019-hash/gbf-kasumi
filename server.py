@@ -800,7 +800,8 @@ def api_scout(q):
 
 
 def api_scout_speed(q):
-    """サーチの時速分析: 本戦各日の 最高時速/平均時速 を両団ぶん(重いので別API)"""
+    """サーチの時速分析: 本戦各日の 最高時速/平均時速 を両団ぶん(重いので別API)。
+    今回開催の本戦1〜4日目のうち、実際に終わった日ぶんだけ行が増えていく"""
     raid = raid_arg(q) or meta_for()["raid"]
     v = (q.get("gid", [""])[0] or "").strip()
     if not v.isdigit():

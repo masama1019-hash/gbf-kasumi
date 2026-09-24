@@ -992,8 +992,9 @@ async function loadScout(){
       <div><div class="k">霞桜団 本戦日毎平均</div><div class="v">${f1(d.ours_avg)}<span class="u">億</span></div><div class="k">同期間</div></div>
       <div><div class="k">日毎平均の差</div><div class="v">${avgDiff!=null?(avgDiff>=0?'+':'')+f1(avgDiff):'—'}<span class="u">億</span></div><div class="k">霞桜団 − ${d.name}</div></div>
     </div>`;
-  // 過去3戦の本戦比較テーブル
-  const p3=d.events.slice(0,3);
+  // 過去3戦の本戦比較テーブル。今回開催などまだ本戦の確定データが無い(空の)開催は
+  // 数えても行が出ないので飛ばし、実データがある直近3開催を使う
+  const p3=d.events.filter(e=>Object.keys(e.honsen_days||{}).length||Object.keys(e.ours_honsen_days||{}).length).slice(0,3);
   // 直近3開催 × 本戦1〜4 の当日貢献度で日別比較
   const DN={4:'本戦1日目',5:'本戦2日目',6:'本戦3日目',7:'本戦4日目'};
   const p3rows=p3.slice().reverse().map(e=>[4,5,6,7].map(k=>{

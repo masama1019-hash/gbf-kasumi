@@ -814,7 +814,11 @@ def api_scout_speed(q):
             if s["day_of"] >= 4]
     ours_hist, opp_hist = guild_histories(OURS_GID), guild_histories(gid)
     prev_sched = {s["day_of"]: s["day"] for s in meta_for(raid - 1)["schedules"]}
-    prev_days = [(do, prev_sched[do]) for do in (4, 5, 6) if do in prev_sched]   # 前回本戦1〜3
+    # 今回まだ起きていない日程だけ前回の同じ日程で予習する(今回ある日は自団のデータがあるので
+    # 前回は不要。本戦1日目時点なら前回本戦2〜4、2日目が終われば前回3〜4だけになる)
+    done_dos = {do for do, _ in days if do <= max((x[0] for x in days), default=0)}
+    prev_days = [(do, prev_sched[do]) for do in (4, 5, 6, 7)
+                 if do in prev_sched and do not in done_dos]
 
     def hint_of(rows, rn, do, default):
         ev = {x["day_of"]: x for x in rows if x["raid_number"] == rn}

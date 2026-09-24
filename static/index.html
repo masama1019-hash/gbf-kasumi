@@ -68,6 +68,14 @@
   .chip .k { color:var(--mut); }
   .chip b { font-weight:700; }
   .bar { height:9px; border-radius:5px; background:rgba(127,139,153,.16); overflow:hidden; }
+  /* 時速比較(サーチ)。予選帯と同じ「1本の対比バー＋差チップ」形式(候補B) */
+  .spdRow + .spdRow { margin-top:16px; }
+  .spdRow .lbl { font-size:12px; color:var(--mut); margin-bottom:6px; font-weight:600; }
+  .spdRow .pbar { height:20px; border-radius:10px; background:rgba(127,139,153,.14); overflow:hidden; position:relative; }
+  .spdRow .pbar + .pbar { margin-top:6px; }
+  .spdRow .pbar i { display:block; height:100%; border-radius:10px; }
+  .spdRow .pbar span { position:absolute; left:10px; top:50%; transform:translateY(-50%); font-size:11px; font-weight:700; color:#fff; white-space:nowrap; font-variant-numeric:tabular-nums; }
+  .spdRow .pbar span.out { left:calc(100% + 8px); color:var(--tx); }
   .bar i { display:block; height:100%; border-radius:5px; }
   /* 「悪い」を赤にしない。相手団の赤(--red)と見分けが付かないため、記号と語と濃いインクで示す */
   .up { color:var(--green); font-weight:700; }
@@ -1039,9 +1047,6 @@ async function loadScoutSpeed(gid,oppName){
   if(!$('#scSpdBox')) return;                       // 別の検索に切り替わっていたら中断
   scoutPrevView(s.prev,oppName);
   if(s.error||!s.days||!s.days.length){ box.innerHTML=`<div style="font-size:12px;color:var(--mut)">${s.error||'この回の時刻毎データはgbfdataに未収録です'}</div>`; return; }
-  const L=s.days.map(x=>x.label);
-  const om=s.days.map(x=>x.ours_max), oa=s.days.map(x=>x.ours_avg);
-  const pm=s.days.map(x=>x.opp_max), pa=s.days.map(x=>x.opp_avg);
   const cell=(a,b)=>`<td class="${(a!=null&&b!=null)?(a>=b?'good':'bad'):''}">${(a!=null&&b!=null)?((a-b>0?'+':'')+f1(a-b)):'—'}</td>`;
   const rowsMax=s.days.map(x=>`<tr><td>${x.label}</td><td>${f1(x.ours_max)}</td><td>${f1(x.opp_max)}</td>${cell(x.ours_max,x.opp_max)}</tr>`).join('');
   const rowsAvg=s.days.map(x=>`<tr><td>${x.label}</td><td>${f1(x.ours_avg)}</td><td>${f1(x.opp_avg)}</td>${cell(x.ours_avg,x.opp_avg)}</tr>`).join('');
@@ -1050,9 +1055,9 @@ async function loadScoutSpeed(gid,oppName){
       <button class="minitab on" data-spd="max" onclick="scoutSpeedTab('max')">最高時速</button>
       <button class="minitab" data-spd="avg" onclick="scoutSpeedTab('avg')">平均時速</button>
     </div>
-    <div class="chartbox"><canvas id="scSpd"></canvas></div>
+    <div id="scSpdRows"></div>
     <div id="scSpdTable" style="overflow-x:auto;margin-top:10px"></div>`;
-  SPD={L, om, oa, pm, pa, oppName,
+  SPD={days:s.days, oppName,
        tblMax:`<div class="tw"><table><tr><th>日程</th><th>霞桜団 最高時速</th><th>${oppName} 最高時速</th><th>最高時速差</th></tr>${rowsMax}</table></div>`,
        tblAvg:`<div class="tw"><table><tr><th>日程</th><th>霞桜団 平均時速</th><th>${oppName} 平均時速</th><th>平均時速差</th></tr>${rowsAvg}</table></div>`};
   scoutSpeedTab('max');
@@ -1106,6 +1111,21 @@ function scoutMembersHtml(mv,name){
     <div class="tw"><table><tr><th>団内</th><th>名前</th><th>貢献度</th><th>個人順位</th></tr>${rows}</table></div>
     <div style="font-size:11px;color:var(--mut);margin-top:6px">貢献度の多い順。記録が無い団員は今回の個人ランキング圏外です。</div></div>`;
 }
+// 時速比較の1行。全行共通のスケール(mx)でバー幅を揃え、日を跨いで比較できるようにする。
+// バーが細い(値が小さい)ときは白文字がバーからはみ出るので、外側に出す
+function spdRowHtml(label,a,b,oppName,mx){
+  const bar=(v,color,who)=>{
+    if(v==null) return `<div class="pbar"><i style="width:0"></i></div>`;
+    const pct=mx?Math.max(v/mx*100,3):0;
+    const wide=pct>=22;
+    return `<div class="pbar"><i style="width:${pct}%;background:${color}"></i>
+      <span${wide?'':' class="out"'} style="${wide?'':`left:${pct}%;margin-left:8px`}">${who} ${f1(v)}</span></div>`;
+  };
+  const diff=(a!=null&&b!=null)?a-b:null;
+  const chip=diff==null?'':`<span class="chip" style="margin-top:8px"><span class="k">差</span><b class="${diff>=0?'good':'bad'}">${diff>=0?'+':''}${f1(diff)}億/h</b></span>`;
+  return `<div class="spdRow"><div class="lbl">${label}</div>
+    ${bar(a,'var(--blue)','霞桜団')}${bar(b,'var(--red)',oppName)}${chip}</div>`;
+}
 function scoutSpeedTab(mode){
   if(!SPD) return;
   document.querySelectorAll('.minitab').forEach(b=>b.classList.toggle('on', b.dataset.spd===mode));
@@ -1114,17 +1134,10 @@ function scoutSpeedTab(mode){
   // 見出しは選択中のタブに追従させる(最高/平均どちらを見ているか一目で分かるように)
   const t=$('#scSpdTitle');
   if(t) t.textContent=`本戦の${isMax?'最高':'平均'}時速`;
-  mkChart('#scSpd','bar',SPD.L,[
-    {label:'霞桜団',data:isMax?SPD.om:SPD.oa,bar:'#378ADD',borderRadius:4,borderSkipped:false},
-    {label:SPD.oppName,data:isMax?SPD.pm:SPD.pa,bar:'#D85A30',borderRadius:4,borderSkipped:false}
-  ],{indexAxis:'y',
-     // ⚠️ 横棒では axis:'y' が要る(ホバー選択がずれるため)
-     interaction:{mode:'index',intersect:false,axis:'y'},
-     datasets:{bar:{categoryPercentage:.6,barPercentage:.85}},
-     scales:{x:{grid:{color:'rgba(28,39,51,.05)',drawTicks:false},border:{display:false},
-                ticks:{color:'#68707a',font:{size:10},maxTicksLimit:5}},
-              y:{grid:{display:false},border:{color:'rgba(28,39,51,.10)'},
-                ticks:{color:'#1c2733',font:{size:10.5}}}}});
+  const key=isMax?['ours_max','opp_max']:['ours_avg','opp_avg'];
+  const vals=SPD.days.flatMap(x=>[x[key[0]],x[key[1]]]).filter(v=>v!=null);
+  const mx=vals.length?Math.max(...vals):1;
+  $('#scSpdRows').innerHTML=SPD.days.map(x=>spdRowHtml(x.label,x[key[0]],x[key[1]],SPD.oppName,mx)).join('');
 }
 // 個ランの判断バンド。ライブ・サーチ・予選と同じ構成に揃える。
 // 左=本人の累積、中=本人と2本のラインの比較バー、右=着地、下帯=到達判定

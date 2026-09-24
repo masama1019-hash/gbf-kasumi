@@ -801,7 +801,9 @@ def api_scout(q):
 
 def api_scout_speed(q):
     """サーチの時速分析: 本戦各日の 最高時速/平均時速 を両団ぶん(重いので別API)。
-    今回開催の本戦1〜4日目のうち、実際に終わった日ぶんだけ行が増えていく"""
+    今回開催の本戦1〜4日目のうち終わった日ぶんに加え、前回開催の本戦1〜3日目
+    (両団それぞれの過去実績。対戦相手は前回と同じとは限らない)を比較材料として添える。
+    ⚠️ gbfdataの団毎時データは2開催ぶんしか残らないため前回までしか遡れない"""
     raid = raid_arg(q) or meta_for()["raid"]
     v = (q.get("gid", [""])[0] or "").strip()
     if not v.isdigit():
@@ -811,14 +813,16 @@ def api_scout_speed(q):
     days = [(s["day_of"], s["day"]) for s in sorted(m["schedules"], key=lambda s: s["day_of"])
             if s["day_of"] >= 4]
     ours_hist, opp_hist = guild_histories(OURS_GID), guild_histories(gid)
+    prev_sched = {s["day_of"]: s["day"] for s in meta_for(raid - 1)["schedules"]}
+    prev_days = [(do, prev_sched[do]) for do in (4, 5, 6) if do in prev_sched]   # 前回本戦1〜3
 
-    def hint_of(rows, do, default):
-        ev = {x["day_of"]: x for x in rows if x["raid_number"] == raid}
+    def hint_of(rows, rn, do, default):
+        ev = {x["day_of"]: x for x in rows if x["raid_number"] == rn}
         return (ev.get(do) or ev.get(do - 1) or {}).get("rank") or default
 
     def stats(item):
-        do, date, rows_, g, dflt = item
-        ser = hourly_series(raid, date, day_base(rows_, raid, date), g, hint_of(rows_, do, dflt))
+        rn, do, date, rows_, g, dflt = item
+        ser = hourly_series(rn, date, day_base(rows_, rn, date), g, hint_of(rows_, rn, do, dflt))
         sp = _speeds(ser)
         # 08:00は日始(前日終了からの差分でない)ので除外
         vals = [v for t, v in sp.items() if t != "08:00" and v is not None and v > 0]
@@ -829,8 +833,11 @@ def api_scout_speed(q):
 
     jobs = []
     for do, date in days:
-        jobs.append((do, date, ours_hist, OURS_GID, 250))
-        jobs.append((do, date, opp_hist, gid, 400))
+        jobs.append((raid, do, date, ours_hist, OURS_GID, 250))
+        jobs.append((raid, do, date, opp_hist, gid, 400))
+    for do, date in prev_days:
+        jobs.append((raid - 1, do, date, ours_hist, OURS_GID, 250))
+        jobs.append((raid - 1, do, date, opp_hist, gid, 400))
     with ThreadPoolExecutor(max_workers=8) as ex:
         res = list(ex.map(stats, jobs))
     out = []
@@ -838,6 +845,13 @@ def api_scout_speed(q):
         o, p = res[i * 2], res[i * 2 + 1]
         if o or p:
             out.append({"label": f"本戦{do - 3}", "day_of": do,
+                        "ours_max": (o or {}).get("max"), "ours_avg": (o or {}).get("avg"),
+                        "opp_max": (p or {}).get("max"), "opp_avg": (p or {}).get("avg")})
+    n = len(days)
+    for i, (do, date) in enumerate(prev_days):
+        o, p = res[n * 2 + i * 2], res[n * 2 + i * 2 + 1]
+        if o or p:
+            out.append({"label": f"前回本戦{do - 3}", "day_of": do, "prev": True,
                         "ours_max": (o or {}).get("max"), "ours_avg": (o or {}).get("avg"),
                         "opp_max": (p or {}).get("max"), "opp_avg": (p or {}).get("avg")})
 

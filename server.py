@@ -492,7 +492,11 @@ def api_live(q):
         days = sorted([(r["day"], r["rank"]) for r in rows if r["raid_number"] == raid])
         prev = [rk for dy, rk in days if dy < d]
         same = [rk for dy, rk in days if dy == d]
-        return prev[-1] if prev else (same[0] if same else default)
+        # 過去日(確定済み)は、その日自身の確定順位を優先する。前日(インターバル等)の
+        # 順位を使うと、その日大きく順位を上げた団で全時刻とも探索に失敗することがあった
+        # (Gloriaが本戦1日目にインターバル8068位→793位まで動き、前日ヒントでは
+        #  ±2000位ほどの探索網に一度も入らずopp側が丸ごと空になった。2026-09-25発見)
+        return same[0] if same else (prev[-1] if prev else default)
 
     # 前日基準(Day分)を保証: historiesに前日が無ければ前日24:00ランキングから補完
     # (基準0のまま計算すると総貢献度が混ざり日次リードが狂うため)

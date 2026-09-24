@@ -676,7 +676,14 @@ def api_scout(q):
     sched = {s["day_of"]: s["day"] for s in m["schedules"]}
     last_battle_date = sched.get(7) or sched.get(6) or sched.get(5) or sched.get(4)
 
-    cur_do = next((s["day_of"] for s in m["schedules"] if s["day"] == last_battle_date), 7)
+    # 同名団の絞り込みに使う「前日」の基準。⚠️以前は常に最終日(本戦4日目)を基準にしていて、
+    # 開催中(今回なら本戦2日目)でも「本戦3日目」の貢献度を表示していた(未来の存在しない日で、
+    # たまたま直近の実データにフォールバックしていた模様)。開催中は今日を、開催期間外
+    # (開催前・終了後)は最終日を基準にする
+    today = gbf_today()
+    cur_do = next((s["day_of"] for s in m["schedules"] if s["day"] == today), None)
+    if cur_do is None:
+        cur_do = next((s["day_of"] for s in m["schedules"] if s["day"] == last_battle_date), 7)
     gid, gname = None, None
     if re.fullmatch(r"\d{3,9}", query):
         gid = int(query)

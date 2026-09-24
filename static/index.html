@@ -815,10 +815,10 @@ async function loadLive(){
   const pkOf=sp=>Math.max(0,...Object.values(sp||{}).filter(v=>v!=null));
   const oppPeak=Math.max(ppk.v||0, prev?pkOf(prev.opp.speed):0);
   const ourPeak=Math.max(opk.v||0, prev?pkOf(prev.ours.speed):0);
-  // 「止まる」は非現実的なので、逆側はその日の平均時速で走り続ける前提にする
+  // 「止まる」は非現実的なので、逆側は直近1時間の時速で走り続ける前提にする
   // (完全停止は考えにくいため。最高時速側は従来どおり最悪/最良の仮定のまま)
-  const avgOf=sp=>{const vs=sp.slice(0,lastIdx+1).filter(v=>v!=null);return vs.length?vs.reduce((a,b)=>a+b,0)/vs.length:0;};
-  const ourAvg=avgOf(os), oppAvg=avgOf(ps);
+  const latestOf=sp=>{for(let i=lastIdx;i>=0;i--){if(sp[i]!=null)return sp[i];}return 0;};
+  const ourAvg=latestOf(os), oppAvg=latestOf(ps);
   let escape=null;
   if(lastIdx>=0 && lead!=null){
     const T={good:['#e1f5ee','#0F6E56'], mid:['#f0f2f5','#3d4854']};
@@ -828,16 +828,16 @@ async function loadLive(){
       const oppFin=(lp??0)+oppPeak*remainH, ourFin=(lo??0)+ourAvg*remainH, diff=ourFin-oppFin;
       escape= diff>=0
         ? {tone:T.good,label:'逃げ切り圏内',
-           text:`${oppName}が最高時速 ${oppPeak.toFixed(1)}億/h で残り${remainH}時間を走り切っても最終${oppFin.toFixed(1)}億。自団もこの日の平均 ${ourAvg.toFixed(1)}億/h で走り続ければ最終${ourFin.toFixed(1)}億で、+${diff.toFixed(1)}億 のリードを保てます`}
+           text:`${oppName}が最高時速 ${oppPeak.toFixed(1)}億/h で残り${remainH}時間を走り切っても最終${oppFin.toFixed(1)}億。自団も直近時速 ${ourAvg.toFixed(1)}億/h で走り続ければ最終${ourFin.toFixed(1)}億で、+${diff.toFixed(1)}億 のリードを保てます`}
         : {tone:T.mid,label:'逆転される可能性有り',
-           text:`${oppName}が最高時速 ${oppPeak.toFixed(1)}億/h で残り${remainH}時間を走ると最終${oppFin.toFixed(1)}億。自団がこの日の平均 ${ourAvg.toFixed(1)}億/h で走り続けても最終${ourFin.toFixed(1)}億で、${diff.toFixed(1)}億 逆転されます`};
+           text:`${oppName}が最高時速 ${oppPeak.toFixed(1)}億/h で残り${remainH}時間を走ると最終${oppFin.toFixed(1)}億。自団が直近時速 ${ourAvg.toFixed(1)}億/h で走り続けても最終${ourFin.toFixed(1)}億で、${diff.toFixed(1)}億 逆転されます`};
     }else{
       const ourFin=(lo??0)+ourPeak*remainH, oppFin=(lp??0)+oppAvg*remainH, diff=ourFin-oppFin;
       escape= diff>0
         ? {tone:T.mid,label:'逆転可能',
-           text:`自団が最高時速 ${ourPeak.toFixed(1)}億/h で残り${remainH}時間を走れば最終${ourFin.toFixed(1)}億。${oppName}がこの日の平均 ${oppAvg.toFixed(1)}億/h で走り続けても最終${oppFin.toFixed(1)}億で、+${diff.toFixed(1)}億 逆転できます`}
+           text:`自団が最高時速 ${ourPeak.toFixed(1)}億/h で残り${remainH}時間を走れば最終${ourFin.toFixed(1)}億。${oppName}が直近時速 ${oppAvg.toFixed(1)}億/h で走り続けても最終${oppFin.toFixed(1)}億で、+${diff.toFixed(1)}億 逆転できます`}
         : {tone:T.mid,label:'逆転困難',
-           text:`自団が最高時速 ${ourPeak.toFixed(1)}億/h で残り${remainH}時間を走り切っても最終${ourFin.toFixed(1)}億。${oppName}がこの日の平均 ${oppAvg.toFixed(1)}億/h で走り続けると最終${oppFin.toFixed(1)}億で、${diff.toFixed(1)}億 届きません`};
+           text:`自団が最高時速 ${ourPeak.toFixed(1)}億/h で残り${remainH}時間を走り切っても最終${ourFin.toFixed(1)}億。${oppName}が直近時速 ${oppAvg.toFixed(1)}億/h で走り続けると最終${oppFin.toFixed(1)}億で、${diff.toFixed(1)}億 届きません`};
     }
   }
   let heroHtml='';

@@ -821,19 +821,19 @@ async function loadLive(){
     if(remainH===0){
       escape={tone:T.mid,label:'確定',text:`24時で終了。最終差は ${lead>=0?'+':''}${lead.toFixed(1)}億`};
     }else if(lead>=0){
-      const mx=oppPeak*remainH;
+      const mx=oppPeak*remainH, fin=(lp??0)+mx;
       escape= mx<lead
         ? {tone:T.good,label:'逃げ切り圏内',
-           text:`${oppName}が最高時速 ${oppPeak.toFixed(1)}億/h で残り${remainH}時間を走り切っても +${mx.toFixed(1)}億。自団が止まってもリード ${lead.toFixed(1)}億 には届きません`}
+           text:`${oppName}が最高時速 ${oppPeak.toFixed(1)}億/h で残り${remainH}時間を走り切っても最終${fin.toFixed(1)}億。自団が止まってもリード ${lead.toFixed(1)}億 には届きません`}
         : {tone:T.mid,label:'逆転される可能性有り',
-           text:`${oppName}が最高時速 ${oppPeak.toFixed(1)}億/h で残り${remainH}時間を走ると +${mx.toFixed(1)}億。自団が止まると ${(mx-lead).toFixed(1)}億 逆転されます`};
+           text:`${oppName}が最高時速 ${oppPeak.toFixed(1)}億/h で残り${remainH}時間を走ると最終${fin.toFixed(1)}億。自団が止まると ${(mx-lead).toFixed(1)}億 逆転されます`};
     }else{
-      const mx=ourPeak*remainH;
+      const mx=ourPeak*remainH, fin=(lo??0)+mx;
       escape= mx>-lead
         ? {tone:T.mid,label:'逆転可能',
-           text:`自団が最高時速 ${ourPeak.toFixed(1)}億/h で残り${remainH}時間を走れば +${mx.toFixed(1)}億。相手が止まれば ${(-lead).toFixed(1)}億 のビハインドは返せます`}
+           text:`自団が最高時速 ${ourPeak.toFixed(1)}億/h で残り${remainH}時間を走れば最終${fin.toFixed(1)}億。相手が止まれば ${(-lead).toFixed(1)}億 のビハインドは返せます`}
         : {tone:T.mid,label:'逆転困難',
-           text:`自団が最高時速 ${ourPeak.toFixed(1)}億/h で残り${remainH}時間を走り切っても +${mx.toFixed(1)}億。相手が止まっても ${(-lead).toFixed(1)}億 のビハインドに届きません`};
+           text:`自団が最高時速 ${ourPeak.toFixed(1)}億/h で残り${remainH}時間を走り切っても最終${fin.toFixed(1)}億。相手が止まっても ${(-lead).toFixed(1)}億 のビハインドに届きません`};
     }
   }
   let heroHtml='';
